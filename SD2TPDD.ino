@@ -57,11 +57,13 @@ char tempDirectory[60] = "/";
 //-------------- OLED -----------------
 // https://www.arduinolibraries.info/libraries/ssd1306-ascii
 // I2C 0x78 - connect to SDA0 & SCL0  (19 & 18)
+#if MODE == 1
 #include <Wire.h>
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
 #define I2C_ADDRESS 0x3C
 SSD1306AsciiWire OLED;
+#endif
 
 void setup() {
   CLIENT_PORT.begin(CLIENT_BAUD,CLIENT_SFMT);  //Start the main serial port
@@ -74,7 +76,7 @@ void setup() {
 
 #if MODE == 0
   MONOUT.begin(19200);  //Start the debug serial port
-#else MODE == 1
+#else if MODE == 1
   Wire.begin();
   Wire.setClock(400000L);
   MONOUT.begin(&Adafruit128x64, I2C_ADDRESS);
@@ -124,12 +126,17 @@ void printDirectory(File dir, int numTabs) { //Copied code from the file list ex
     MONOUT.print(fileName);
     if (entry.isDirectory()) {
       MONOUT.println("/");
+#if MODE == 0
       printDirectory(entry, numTabs + 1);
     } else {
       // files have sizes, directories do not
       MONOUT.print("\t\t");
       MONOUT.println(entry.fileSize(), DEC);
+#else if MODE ==1
+    } else {
+      MONOUT.println();
     }
+#endif
     entry.close();
   }
 }
