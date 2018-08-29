@@ -5,16 +5,26 @@
  * 07/27/2018
  * 
  * Adapt for Teensy 3.6 - Brian K. White bw.aljex.@gmail.com 20180824
- *  - no chip select for teensy built-in sd reader
- *  - SdFatSdioEX instead of SdFat
+ *  - Teensy 3.5 / 3.6 built-in card reader
+ *  - SdFatSdioEX
+ *  - rts/cts
  *  - oled
+ *  - option to #ifdef out all usb serial, which allows cpu speed below 24mhz
  */
 
 #define CLIENT_PORT Serial1
 #define CLIENT_BAUD 19200
 #define CLIENT_SFMT SERIAL_8N1
-#define CLIENT_RTS_PIN 21
-#define CLIENT_CTS_PIN 20   //Teensy 3.6 only allows 18 or 20. 18 is being used for OLED.
+// uncomment to enable rts/cts  (TpddTool.py uses it)
+#define CLIENT_RTS_PIN 21   //Teensy 3.5/3.6 allows any
+#define CLIENT_CTS_PIN 20   //Teensy 3.5/3.6 allows 18 or 20. 18 is used for OLED.
+
+#define MODE 1
+#if MODE == 0
+#define MONOUT Serial
+#else if MODE == 1
+#define MONOUT OLED
+#endif
 
 #include <SdFat.h>
 SdFatSdioEX SD; //SD card object
@@ -51,11 +61,9 @@ char tempDirectory[60] = "/";
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
 #define I2C_ADDRESS 0x3C
-SSD1306AsciiWire oled;
-//-------------------------------------
+SSD1306AsciiWire OLED;
 
 void setup() {
-  Serial.begin(19200);  //Start the debug serial port
   CLIENT_PORT.begin(CLIENT_BAUD,CLIENT_SFMT);  //Start the main serial port
   CLIENT_PORT.clear();
   CLIENT_PORT.flush();
@@ -64,24 +72,29 @@ void setup() {
   CLIENT_PORT.attachCts(CLIENT_CTS_PIN);
 #endif 
 
-  // OLED
+#if MODE == 0
+  MONOUT.begin(19200);  //Start the debug serial port
+#else MODE == 1
   Wire.begin();
   Wire.setClock(400000L);
-  oled.begin(&Adafruit128x64, I2C_ADDRESS);
-  oled.setFont(Adafruit5x7);
-  oled.setScroll(true);
-  oled.clear();
-  oled.println("TeensyPDD");
-    
+  MONOUT.begin(&Adafruit128x64, I2C_ADDRESS);
+  MONOUT.setFont(Adafruit5x7);
+  MONOUT.setScroll(true);
+  MONOUT.clear();
+#endif
+
+  MONOUT.println("TeensyPDD");
+
   clearBuffer(dataBuffer, 256); //Clear the data buffer
 
-  Serial.print("Initializing SD card...");
+  //MONOUT.println("Init SD card...");
 
   if (!SD.begin()) {
-    Serial.println("initialization failed!");
+    //MONOUT.println("Failed!");
+    MONOUT.println("No SD card");
     while (1);
   }
-  Serial.println("initialization done.");
+  //MONOUT.println("OK!");
 
   root = SD.open(directory);  //Create the root filesystem entry
 
@@ -105,17 +118,17 @@ void printDirectory(File dir, int numTabs) { //Copied code from the file list ex
       break;
     }
     for (uint8_t i = 0; i < numTabs; i++) {
-      Serial.print('\t');
+      MONOUT.print('\t');
     }
     entry.getName(fileName,24);
-    Serial.print(fileName);
+    MONOUT.print(fileName);
     if (entry.isDirectory()) {
-      Serial.println("/");
+      MONOUT.println("/");
       printDirectory(entry, numTabs + 1);
     } else {
       // files have sizes, directories do not
-      Serial.print("\t\t");
-      Serial.println(entry.fileSize(), DEC);
+      MONOUT.print("\t\t");
+      MONOUT.println(entry.fileSize(), DEC);
     }
     entry.close();
   }
@@ -126,8 +139,7 @@ void clearBuffer(byte* buffer, int bufferSize){ //Fills the buffer with 0x00
     buffer[i] = 0x00;
   }
 }
-// Surely this is the stupidest way to do this, but I am stupid,
-// and this way I don't go changing data types that I don't know are safe to change...
+// TODO: less-stupid way than duplicating the function
 void clearBufferC(char* buffer, int bufferSize){ //char version of clearBuffer
   for(int i=0; i<bufferSize; i++){
     buffer[i] = 0x00;
@@ -147,7 +159,7 @@ void directoryAppend(char* c){  //Copy a null-terminated char array to the direc
     directory[i++] = c[j++];
     terminated = c[j] == 0x00;
   }
-  //Serial.println(directory);
+  MONOUT.println(directory);
 }
 
 void upDirectory(){ //Removes the top-most entry in the directoy path
@@ -205,8 +217,8 @@ void tpddSendChecksum(){  //Outputs the checksum to the TPDD port and clears the
  */
  
 void return_normal(byte errorCode){ //Sends a normal return to the TPDD port with error code errorCode
-  //Serial.print("R:Norm ");
-  //Serial.println(errorCode, HEX);
+  MONOUT.print("R:Norm ");
+  MONOUT.println(errorCode, HEX);
 
   tpddWrite(0x12);  //Return type (normal)
   tpddWrite(0x01);  //Data size (1)
@@ -265,7 +277,7 @@ void return_reference(){  //Sends a reference return to the TPDD port
   tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
   tpddSendChecksum(); //Checksum
 
-  //Serial.println("R:Ref");
+  MONOUT.println("R:Ref");
 }
 
 void return_blank_reference(){  //Sends a blank reference return to the TPDD port
@@ -282,7 +294,7 @@ void return_blank_reference(){  //Sends a blank reference return to the TPDD por
   tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
   tpddSendChecksum(); //Checksum
 
-  //Serial.println("R:BRef");
+  MONOUT.println("R:BRef");
 }
 
 void return_parent_reference(){
@@ -310,11 +322,9 @@ void return_parent_reference(){
 void command_reference(){ //Reference command handler
   byte searchForm = dataBuffer[(byte)(tail+29)];  //The search form byte exists 29 bytes into the command
   byte refIndex = 0;  //Reference file name index
-
-  oled.println("reference");
   
-  //Serial.print("SF:");
-  //Serial.println(searchForm,HEX);
+  MONOUT.print("SF:");
+  MONOUT.println(searchForm,HEX);
   
   if(searchForm == 0x00){ //Request entry by name
     for(int i=4; i<28; i++){  //Put the reference file name into a buffer
@@ -324,8 +334,8 @@ void command_reference(){ //Reference command handler
     }
     refFileName[refIndex]=0x00; //Terminate the file name buffer with a null character
 
-    //Serial.print("Ref: ");
-    //Serial.println(refFileName);
+    MONOUT.print("Ref: ");
+    MONOUT.println(refFileName);
 
     if(DME){  //        !!!Strips the ".<>" off of the reference name if we're in DME mode
       if(strstr(refFileName, ".<>") != 0){
@@ -403,9 +413,11 @@ void ref_openNext(){
 
 void command_open(){  //Opens an entry for reading, writing, or appending
   byte rMode = dataBuffer[(byte)(tail+4)];  //The access mode is stored in the 5th byte of the command
-  entry.close();
 
-  oled.println("open");
+  MONOUT.print("open mode:");
+  MONOUT.println(rMode);
+
+  entry.close();
 
   if(DME && strcmp(refFileNameNoDir, "PARENT") == 0){ //If DME mode is enabled and the reference is for the "PARENT" directory
     upDirectory();  //The top-most entry in the directory buffer is taken away
@@ -441,19 +453,17 @@ void command_open(){  //Opens an entry for reading, writing, or appending
 }
 
 void command_close(){ //Closes the currently open entry
-
-  oled.println("close");
-
+  MONOUT.println("close");
   entry.close();  //Close the entry
   return_normal(0x00);  //Normal return with no error
 }
 
 void command_read(){  //Read a block of data from the currently open entry
   int bytesRead = entry.read(fileBuffer, 0x80); //Try to pull 128 bytes from the file into the buffer
-  //Serial.print("A: ");
-  //Serial.println(entry.available(),HEX);
 
-  oled.println("read");
+  MONOUT.println("read");
+  MONOUT.print("A: ");
+  MONOUT.println(entry.available(),HEX);
 
   if(bytesRead > 0){  //Send the read return if there is data to be read
     tpddWrite(0x10);  //Return type
@@ -470,7 +480,10 @@ void command_read(){  //Read a block of data from the currently open entry
 void command_write(){ //Write a block of data from the command to the currently open entry
   byte commandDataLength = dataBuffer[(byte)(tail+3)];
 
-  oled.println("write");
+  MONOUT.print("write ");
+  MONOUT.print(append);
+  MONOUT.print(" ");
+  MONOUT.println(commandDataLength);
 
   for(int i=0; i<commandDataLength; i++){
     if(append){
@@ -484,8 +497,7 @@ void command_write(){ //Write a block of data from the command to the currently 
 }
 
 void command_delete(){  //Delete the currently open entry
-
-  oled.println("delete");
+  MONOUT.println("delete");
 
   entry.close();  //Close any open entries
   directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
@@ -504,27 +516,24 @@ void command_delete(){  //Delete the currently open entry
 }
 
 void command_format(){  //Not implemented
-  oled.println("format");
-
+  MONOUT.println("format");
   return_normal(0x00);
 }
 
 void command_status(){  //Drive status
-  oled.println("status");
-
+  MONOUT.println("status");
   return_normal(0x00);
 }
 
 void command_condition(){ //Not implemented
-  oled.println("condition");
-
+  MONOUT.println("condition");
   return_normal(0x00);
 }
 
 void command_rename(){  //Renames the currently open entry
   byte refIndex = 0;  //Temporary index for the reference name
 
-  oled.println("rename");
+  MONOUT.println("rename");
 
   directoryAppend(refFileNameNoDir);  //Push the current reference name onto the directory buffer
   
@@ -559,8 +568,8 @@ void command_rename(){  //Renames the currently open entry
     directoryAppend("/");
   }
 
-  //Serial.println(directory);
-  //Serial.println(tempDirectory);
+  MONOUT.println(directory);
+  MONOUT.println(tempDirectory);
   SD.rename(tempDirectory,directory);  //Rename the entry
 
   upDirectory();
@@ -577,8 +586,7 @@ void command_rename(){  //Renames the currently open entry
  */
 
 void command_DMEReq(){  //Send the DME return with the root directory's name
-
-  oled.println("DMEReq");
+  MONOUT.println("DMEReq");
   
   if(DME){
     tpddWrite(0x12);
@@ -609,14 +617,14 @@ void loop() {
       if(tail==head){ //...if the tail index equals the head index (a wrap-around has occoured! data will be lost!)
         tail++; //...increment the tail index to prevent the command size from overflowing.
       }
-      //Serial.print((byte)(head-1),HEX); //Debug code
-      //Serial.print("-");
-      //Serial.print(tail,HEX);
-      //Serial.print((byte)(head-tail),HEX);
-      //Serial.print(":");
-      //Serial.print(dataBuffer[head-1],HEX);
-      //Serial.print(";");
-      //Serial.println((dataBuffer[head-1]>=0x20)&&(dataBuffer[head-1]<=0x7E)?(char)dataBuffer[head-1]:' ');
+      //MONOUT.print((byte)(head-1),HEX); //Debug code
+      //MONOUT.print("-");
+      //MONOUT.print(tail,HEX);
+      //MONOUT.print((byte)(head-tail),HEX);
+      //MONOUT.print(":");
+      //MONOUT.print(dataBuffer[head-1],HEX);
+      //MONOUT.print(";");
+      //MONOUT.println((dataBuffer[head-1]>=0x20)&&(dataBuffer[head-1]<=0x7E)?(char)dataBuffer[head-1]:' ');
     }
 
     diff=(byte)(head-tail); //...set the difference between the head and tail index (number of bytes in the buffer)
@@ -643,13 +651,13 @@ void loop() {
     }
   } 
 
-  //Serial.print(tail,HEX); //Debug code that displays the tail index in the buffer where the command was found...
-  //Serial.print("=");
-  //Serial.print("T:"); //...the command type...
-  //Serial.print(rType, HEX);
-  //Serial.print("|L:");  //...and the command length.
-  //Serial.print(rLength, HEX);
-  //Serial.println(DME?'D':'.');
+  //MONOUT.print(tail,HEX); //Debug code that displays the tail index in the buffer where the command was found...
+  //MONOUT.print("=");
+  //MONOUT.print("T:"); //...the command type...
+  //MONOUT.print(rType, HEX);
+  //MONOUT.print("|L:");  //...and the command length.
+  //MONOUT.print(rLength, HEX);
+  //MONOUT.println(DME?'D':'.');
   
   switch(rType){  //Select the command handler routine to jump to based on the command type
     case 0x00: command_reference(); break;
@@ -663,14 +671,14 @@ void loop() {
     case 0x08: command_DMEReq() ; break; //DME Command
     case 0x0C: command_condition() ; break;
     case 0x0D: command_rename() ; break;
-    default: return_normal(0x36); oled.println("ERR") ; break;  //Send a normal return with a parameter error if the command is not implemented
+    default: return_normal(0x36); MONOUT.println("ERR") ; break;  //Send a normal return with a parameter error if the command is not implemented
   }
   
-  //Serial.print(head,HEX);
-  //Serial.print(":");
-  //Serial.print(tail,HEX);
-  //Serial.print("->");
+  //MONOUT.print(head,HEX);
+  //MONOUT.print(":");
+  //MONOUT.print(tail,HEX);
+  //MONOUT.print("->");
   tail = tail+rLength+5;  //Increment the tail index past the previous command
-  //Serial.println(tail,HEX);
+  //MONOUT.println(tail,HEX);
   
 }
