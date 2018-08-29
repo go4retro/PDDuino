@@ -3,18 +3,25 @@
  * A TPDD emulator for the Arduino Mega that uses an SD card for mass storage.
  * Written by Jimmy Pettit
  * 07/27/2018
+ * 
+ * Adapt for Teensy 3.6 - Brian K. White bw.aljex.@gmail.com 20180824
+ *  - no chip select for teensy built-in sd reader
+ *  - SdFatSdioEX instead of SdFat
+ *  - oled
  */
 
-#include <SPI.h>
-#include <SdFat.h>
+#define CLIENT_PORT Serial1
+#define CLIENT_BAUD 19200
+#define CLIENT_SFMT SERIAL_8N1
+#define CLIENT_RTS_PIN 21
+#define CLIENT_CTS_PIN 20   //Teensy 3.6 only allows 18 or 20. 18 is being used for OLED.
 
-SdFat SD; //SD card object
+#include <SdFat.h>
+SdFatSdioEX SD; //SD card object
 
 File root;  //Root file for filesystem reference
 File entry; //Moving file entry for the emulator
 File tempEntry; //Temporary entry for moving files
-
-const byte chipSelect = 4; //SD Card chip select pin
 
 byte head = 0x00;  //Head index
 byte tail = 0x00;  //Tail index
@@ -37,15 +44,40 @@ char directory[60] = "/";
 byte directoryDepth = 0;
 char tempDirectory[60] = "/";
 
+//-------------- OLED -----------------
+// https://www.arduinolibraries.info/libraries/ssd1306-ascii
+// I2C 0x78 - connect to SDA0 & SCL0  (19 & 18)
+#include <Wire.h>
+#include "SSD1306Ascii.h"
+#include "SSD1306AsciiWire.h"
+#define I2C_ADDRESS 0x3C
+SSD1306AsciiWire oled;
+//-------------------------------------
+
 void setup() {
   Serial.begin(19200);  //Start the debug serial port
-  Serial1.begin(19200);  //Start the main serial port
+  CLIENT_PORT.begin(CLIENT_BAUD,CLIENT_SFMT);  //Start the main serial port
+  CLIENT_PORT.clear();
+  CLIENT_PORT.flush();
+#ifdef CLIENT_RTS_PIN && CLIENT_CTS_PIN
+  CLIENT_PORT.attachRts(CLIENT_RTS_PIN);
+  CLIENT_PORT.attachCts(CLIENT_CTS_PIN);
+#endif 
 
+  // OLED
+  Wire.begin();
+  Wire.setClock(400000L);
+  oled.begin(&Adafruit128x64, I2C_ADDRESS);
+  oled.setFont(Adafruit5x7);
+  oled.setScroll(true);
+  oled.clear();
+  oled.println("TeensyPDD");
+    
   clearBuffer(dataBuffer, 256); //Clear the data buffer
 
   Serial.print("Initializing SD card...");
 
-  if (!SD.begin(4)) {
+  if (!SD.begin()) {
     Serial.println("initialization failed!");
     while (1);
   }
@@ -90,6 +122,13 @@ void printDirectory(File dir, int numTabs) { //Copied code from the file list ex
 }
 
 void clearBuffer(byte* buffer, int bufferSize){ //Fills the buffer with 0x00
+  for(int i=0; i<bufferSize; i++){
+    buffer[i] = 0x00;
+  }
+}
+// Surely this is the stupidest way to do this, but I am stupid,
+// and this way I don't go changing data types that I don't know are safe to change...
+void clearBufferC(char* buffer, int bufferSize){ //char version of clearBuffer
   for(int i=0; i<bufferSize; i++){
     buffer[i] = 0x00;
   }
@@ -141,20 +180,20 @@ void copyDirectory(){ //Makes a copy of the working directory to a scratchpad
 
 void tpddWrite(char c){  //Outputs char c to TPDD port and adds to the checksum
   checksum += c;
-  Serial1.write(c);
+  CLIENT_PORT.write(c);
 }
 
 void tpddWriteString(char* c){  //Outputs a null-terminated char array c to the TPDD port
   int i = 0;
   while(c[i]!=0){
     checksum += c[i];
-    Serial1.write(c[i]);
+    CLIENT_PORT.write(c[i]);
     i++;
   }
 }
 
 void tpddSendChecksum(){  //Outputs the checksum to the TPDD port and clears the checksum
-  Serial1.write(checksum^0xFF);
+  CLIENT_PORT.write(checksum^0xFF);
   checksum = 0;
 }
 
@@ -181,7 +220,7 @@ void return_reference(){  //Sends a reference return to the TPDD port
   tpddWrite(0x11);  //Return type (reference)
   tpddWrite(0x1C);  //Data size (1C)
 
-  clearBuffer(tempRefFileName,24);  //Clear the reference file name buffer
+  clearBufferC(tempRefFileName,24);  //Clear the reference file name buffer
 
   entry.getName(tempRefFileName,24);  //Save the current file entry's name to the reference file name buffer
   
@@ -271,6 +310,8 @@ void return_parent_reference(){
 void command_reference(){ //Reference command handler
   byte searchForm = dataBuffer[(byte)(tail+29)];  //The search form byte exists 29 bytes into the command
   byte refIndex = 0;  //Reference file name index
+
+  oled.println("reference");
   
   //Serial.print("SF:");
   //Serial.println(searchForm,HEX);
@@ -364,6 +405,8 @@ void command_open(){  //Opens an entry for reading, writing, or appending
   byte rMode = dataBuffer[(byte)(tail+4)];  //The access mode is stored in the 5th byte of the command
   entry.close();
 
+  oled.println("open");
+
   if(DME && strcmp(refFileNameNoDir, "PARENT") == 0){ //If DME mode is enabled and the reference is for the "PARENT" directory
     upDirectory();  //The top-most entry in the directory buffer is taken away
     directoryDepth--; //and the directory depth index is decremented
@@ -398,6 +441,9 @@ void command_open(){  //Opens an entry for reading, writing, or appending
 }
 
 void command_close(){ //Closes the currently open entry
+
+  oled.println("close");
+
   entry.close();  //Close the entry
   return_normal(0x00);  //Normal return with no error
 }
@@ -406,6 +452,8 @@ void command_read(){  //Read a block of data from the currently open entry
   int bytesRead = entry.read(fileBuffer, 0x80); //Try to pull 128 bytes from the file into the buffer
   //Serial.print("A: ");
   //Serial.println(entry.available(),HEX);
+
+  oled.println("read");
 
   if(bytesRead > 0){  //Send the read return if there is data to be read
     tpddWrite(0x10);  //Return type
@@ -422,6 +470,8 @@ void command_read(){  //Read a block of data from the currently open entry
 void command_write(){ //Write a block of data from the command to the currently open entry
   byte commandDataLength = dataBuffer[(byte)(tail+3)];
 
+  oled.println("write");
+
   for(int i=0; i<commandDataLength; i++){
     if(append){
       entry.print(dataBuffer[(byte)(tail+4+i)]);  //If the append flag is set, use "print" to append to the file instead of "write"
@@ -434,6 +484,9 @@ void command_write(){ //Write a block of data from the command to the currently 
 }
 
 void command_delete(){  //Delete the currently open entry
+
+  oled.println("delete");
+
   entry.close();  //Close any open entries
   directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
   entry = SD.open(directory, FILE_READ);  //directory can be deleted if opened "READ"
@@ -451,19 +504,27 @@ void command_delete(){  //Delete the currently open entry
 }
 
 void command_format(){  //Not implemented
+  oled.println("format");
+
   return_normal(0x00);
 }
 
 void command_status(){  //Drive status
+  oled.println("status");
+
   return_normal(0x00);
 }
 
 void command_condition(){ //Not implemented
+  oled.println("condition");
+
   return_normal(0x00);
 }
 
 void command_rename(){  //Renames the currently open entry
   byte refIndex = 0;  //Temporary index for the reference name
+
+  oled.println("rename");
 
   directoryAppend(refFileNameNoDir);  //Push the current reference name onto the directory buffer
   
@@ -516,6 +577,9 @@ void command_rename(){  //Renames the currently open entry
  */
 
 void command_DMEReq(){  //Send the DME return with the root directory's name
+
+  oled.println("DMEReq");
+  
   if(DME){
     tpddWrite(0x12);
     tpddWrite(0x0B);
@@ -540,8 +604,8 @@ void loop() {
   state = 0; //0 = waiting for command 1 = waiting for full command 2 = have full command
   
   while(state<2){ //While waiting for a command...
-    while (Serial1.available() > 0){  //While there's data to read from the TPDD port...
-      dataBuffer[head++]=(byte)Serial1.read();  //...pull the character from the TPDD port and put it into the command buffer, increment the head index...
+    while (CLIENT_PORT.available() > 0){  //While there's data to read from the TPDD port...
+      dataBuffer[head++]=(byte)CLIENT_PORT.read();  //...pull the character from the TPDD port and put it into the command buffer, increment the head index...
       if(tail==head){ //...if the tail index equals the head index (a wrap-around has occoured! data will be lost!)
         tail++; //...increment the tail index to prevent the command size from overflowing.
       }
@@ -591,15 +655,15 @@ void loop() {
     case 0x00: command_reference(); break;
     case 0x01: command_open(); break;
     case 0x02: command_close(); break;
-    case 0x03: command_read(); break;
-    case 0x04: command_write(); break;
-    case 0x05: command_delete(); break;
-    case 0x06: command_format(); break;
-    case 0x07: command_status(); break;
-    case 0x08: command_DMEReq(); break; //DME Command
-    case 0x0C: command_condition(); break;
-    case 0x0D: command_rename(); break;
-    default: return_normal(0x36); break;  //Send a normal return with a parameter error if the command is not implemented
+    case 0x03: command_read() ; break;
+    case 0x04: command_write() ; break;
+    case 0x05: command_delete() ; break;
+    case 0x06: command_format() ; break;
+    case 0x07: command_status() ; break;
+    case 0x08: command_DMEReq() ; break; //DME Command
+    case 0x0C: command_condition() ; break;
+    case 0x0D: command_rename() ; break;
+    default: return_normal(0x36); oled.println("ERR") ; break;  //Send a normal return with a parameter error if the command is not implemented
   }
   
   //Serial.print(head,HEX);
