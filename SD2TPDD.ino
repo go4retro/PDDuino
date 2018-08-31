@@ -33,6 +33,10 @@
 //#define CONS Serial
 #undef CONS
 
+// "Drive Activity" light
+#define DRIVE_ACTVITY
+//#undef DRIVE_ACTVITY
+
 #ifdef CONS
  #define CPRINT(x)    CONS.print (x)
  #define CPRINTI(x,y)  CONS.print (x,y)
@@ -40,6 +44,17 @@
  #define CPRINT(x)
  #define CPRINTI(x,y)
 #endif
+
+#if defined(DRIVE_ACTVITY)
+// on-board LED - PORTB bit 5
+#define PINMODE_LED_OUTPUT DDRB = DDRB |= 1UL << 5; // pinMode(13,OUTPUT);
+#define LON PORTB |= _BV(5);                        // digitalWrite(13,HIGH);
+#define LOFF PORTB &= ~_BV(5);                      // digitalWrite(13,LOW);
+#else
+#define PINMODE_LED_OUTPUT
+#define LON
+#define LOFF
+#endif // DRIVE_ACTIVITY
 
 #include <SdFat.h>
 SdFatSdioEX SD;
@@ -70,6 +85,7 @@ byte directoryDepth = 0;
 char tempDirectory[60] = "/";
 
 void setup() {
+  PINMODE_LED_OUTPUT
 
   CLIENT.begin(CLIENT_BAUD);
   CLIENT.clear();
@@ -345,6 +361,7 @@ void command_reference(){ //Reference command handler
   CPRINT("SF:");
   CPRINTI(searchForm,HEX);
   CPRINT("\r\n");
+  LON
 
   //if(!initCard()) return;
   
@@ -399,6 +416,7 @@ void command_reference(){ //Reference command handler
   }else{  //Parameter is invalid
     return_normal(0x36);  //Send a normal return to the TPDD port with a parameter error
   }
+  LOFF
 }
 
 void ref_openFirst(){
@@ -441,6 +459,7 @@ void command_open(){  //Opens an entry for reading, writing, or appending
   CPRINT("open mode:");
   CPRINT(rMode);
   CPRINT("\r\n");
+  LON
 
   //if(!initCard()) return;
 
@@ -475,6 +494,7 @@ void command_open(){  //Opens an entry for reading, writing, or appending
   if(SD.exists(directory)){ //If the file actually exists...
     return_normal(0x00);  //...send a normal return with no error.
   }else{  //If the file doesn't exist...
+    LOFF
     return_normal(0x10);  //...send a normal return with a "file does not exist" error.
   }
 }
@@ -483,6 +503,7 @@ void command_close(){ //Closes the currently open entry
   CPRINT("close\r\n");
   //if(!initCard()) return;
   entry.close();  //Close the entry
+  LOFF
   return_normal(0x00);  //Normal return with no error
 }
 
@@ -544,6 +565,7 @@ void command_delete(){  //Delete the currently open entry
   }
   
   upDirectory();
+  LOFF
   return_normal(0x00);  //Send a normal return with no error
 }
 
