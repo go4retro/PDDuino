@@ -37,7 +37,7 @@
 #define DRIVE_ACTVITY
 //#undef DRIVE_ACTVITY
 
-#ifdef CONS
+#if defined(CONS)
  #define CPRINT(x)    CONS.print (x)
  #define CPRINTI(x,y)  CONS.print (x,y)
 #else
@@ -124,7 +124,7 @@ int initCard () {
   SD.chvol();
   root = SD.open(directory);  //Create the root filesystem entry
 
-#ifdef CONS
+#if defined(CONS)
   printDirectory(root,0); //Print directory for debug purposes
 #endif
   return 0;
@@ -137,7 +137,7 @@ int initCard () {
  * 
  */
 
-#ifdef CONS
+#if defined(CONS)
 void printDirectory(File dir, int numTabs) { //Copied code from the file list example for debug purposes
   char fileName[24] = "";
   while (true) {
