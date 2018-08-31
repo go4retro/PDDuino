@@ -9,19 +9,30 @@
  *  - SdFatSdioEX
  *  - RTS/CTS
  *  - option to #ifdef out all usb serial, which allows cpu speed below 24mhz
+ *  
+ *  Arduino IDE build options:
+ *  * Tools -> Board: Teensy 3.6
+ *  * Tools -> CPU Speed -> 2MHz (no USB)
+ *  * Tools -> Optimize: Fastest
+ *  
  */
 
 // Serial port for tpdd protocol
 #define CLIENT Serial1
 #define CLIENT_BAUD 19200
-// uncomment to enable rts/cts  (TpddTool.py uses it)
+// uncomment to enable RTS/CTS
 #define CLIENT_RTS_PIN 21   //Teensy 3.5/3.6 allows any
 #define CLIENT_CTS_PIN 20   //Teensy 3.5/3.6 allows 18 or 20. 18 is used for OLED.
 
-// debug console
-// Teensy can not use "Serial" below 24mhz
+// Debug console - where shall all console messages go
+// Teensy can not use Serial below 24mhz
+// Usually Serial or undefined, but could add oled etc for output-only display
+// If undefined:
+//   * All Serial (built-in usb) code is #ifdeffed out.
+//   * Cpu can be underclocked all the way down to 2Mhz and it still works, at least well enough to satisfy TpddTool.py
 //#define CONS Serial
 #undef CONS
+
 #ifdef CONS
  #define CPRINT(x)    CONS.print (x)
  #define CPRINTI(x,y)  CONS.print (x,y)
@@ -68,7 +79,6 @@ void setup() {
   CLIENT.attachCts(CLIENT_CTS_PIN);
 #endif 
 
-// console, usually either usb(Serial) or maybe oled(output only)
 #if defined(CONS) && CONS == Serial
   CONS.begin(115200);
   while(!CONS);
@@ -98,8 +108,7 @@ int initCard () {
   SD.chvol();
   root = SD.open(directory);  //Create the root filesystem entry
 
-#if false
-//#ifdef CONS
+#ifdef CONS
   printDirectory(root,0); //Print directory for debug purposes
 #endif
   return 0;
@@ -112,8 +121,7 @@ int initCard () {
  * 
  */
 
-#if false
-//#ifdef CONS
+#ifdef CONS
 void printDirectory(File dir, int numTabs) { //Copied code from the file list example for debug purposes
   char fileName[24] = "";
   while (true) {
