@@ -1,14 +1,7 @@
 /*
- * SD2TPDD  V0.2
- * A TPDD emulator for the Arduino Mega that uses an SD card for mass storage.
- * Written by Jimmy Pettit
- * 07/27/2018
- * 
- * Adapt for Teensy 3.6 - Brian K. White bw.aljex.@gmail.com 20180824
- *  - Teensy 3.5 / 3.6 built-in card reader
- *  - SdFatSdioEX
- *  - RTS/CTS
- *  - option to #ifdef out all usb serial, which allows cpu speed below 24mhz
+ * TeensyPDD - TPDD emulator fo Teensy 3.5 & 3.6 - Brian K. White bw.aljex.@gmail.com 20180824
+ *  
+ * Originally based on SD2TPDD v0.2 by Jimmy Pettit 07/27/2018
  *  
  *  Arduino IDE build options:
  *  * Tools -> Board: Teensy 3.6
@@ -25,7 +18,7 @@
 #define CLIENT_CTS_PIN 20   //Teensy 3.5/3.6 allows 18 or 20. 18 is used for OLED.
 
 // Debug console - where shall all console messages go
-// Teensy can not use Serial below 24mhz
+// Teensy can not use Serial (usb) below 24mhz
 // Usually Serial or undefined, but could add oled etc for output-only display
 // If undefined:
 //   * All Serial (built-in usb) code is #ifdeffed out.
@@ -740,7 +733,7 @@ void loop() {
     case 0x08: command_DMEReq() ; break; //DME Command
     case 0x0C: command_condition() ; break;
     case 0x0D: command_rename() ; break;
-    default: return_normal(0x36); CPRINT("ERR\r\n") ; break;  //Send a normal return with a parameter error if the command is not implemented
+    default: return_normal(0x36); CPRINT("ERR\r\n") ; break;
   }
   
   CPRINTI(head,HEX);
