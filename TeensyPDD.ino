@@ -72,7 +72,6 @@ char refFileNameNoDir[25] = ""; //Reference file name for emulator with no ".<>"
 char tempRefFileName[25] = ""; //Second reference file name for renaming
 char entryName[24] = "";  //Entry name for emulator
 int directoryBlock = 0; //Current directory block for directory listing
-bool append = false;  //SD library lacks an append mode, keep track of it with a flag
 char directory[60] = "/";
 byte directoryDepth = 0;
 char tempDirectory[60] = "/";
@@ -475,9 +474,9 @@ void command_open(){  //Opens an entry for reading, writing, or appending
       }else{  //If the reference isn't a sub-directory, it's a file
         entry.close();
         switch(rMode){
-          case 0x01: entry = SD.open(directory, FILE_WRITE); append=false; break; //Write
-          case 0x02: entry = SD.open(directory, FILE_WRITE); append=true; break;  //Append, set the append flag
-          case 0x03: entry = SD.open(directory, FILE_READ); append=false; break;  //Read
+          case 0x01: entry = SD.open(directory, FILE_WRITE); break; //Write
+          case 0x02: entry = SD.open(directory, FILE_WRITE | O_APPEND); break;  //Append
+          case 0x03: entry = SD.open(directory, FILE_READ); break;  //Read
         }
         upDirectory();
       }
@@ -523,22 +522,17 @@ void command_read(){  //Read a block of data from the currently open entry
 void command_write(){ //Write a block of data from the command to the currently open entry
   byte commandDataLength = dataBuffer[(byte)(tail+3)];
 
-  CPRINT("write mode:");
-  CPRINT(append);
+  CPRINT("write\r\n");
   CPRINT(" length:");
   CPRINT(commandDataLength);
   CPRINT("\r\n");
   //if(!initCard()) return;
 
   for(int i=0; i<commandDataLength; i++){
-    if(append){
-      entry.print(dataBuffer[(byte)(tail+4+i)]);  //If the append flag is set, use "print" to append to the file instead of "write"
-    }else{
-      entry.write(dataBuffer[(byte)(tail+4+i)]);
-    }
+    entry.write(dataBuffer[(byte)(tail+4+i)]);
   }
   
-  return_normal(0x00);  //Send a normal return to the TPDD port with no error
+  return_normal(0x00);
 }
 
 void command_delete(){  //Delete the currently open entry
