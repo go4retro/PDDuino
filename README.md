@@ -4,12 +4,12 @@ A hardware emulator of the Tandy Portable Disk Drive using an SD card for mass s
 Based on Jimmy Petit's SD2TPDD
 
 Status:
-* Emulate the basic file-access functions of a TPDD1 (not fully working)
+* Emulate the basic file-access functions of a TPDD1
 * Provide DME directory access
 
 BUGS:
-* Writing a file reports success, but doesn't actually happen.
-
+* Works with real TS-DOS, but file transfers don't actually work with TpddTool.py
+: This seems to be due to mis-matches in handling the space-padding in the filenames?
 
 ## Requirements
 ### Hardware
@@ -40,7 +40,10 @@ http://www.club100.org/nads/dos100.co
 * A command-line that can be accessed from the computer's terminal emulator for quicker file manipulation
 * Teensy built-in RTC
 * write-protect?
-* teeny/ts-dos injector
+* teeny/ts-dos injector (dlplus looks for YY preamble and sends loader.ba)
+* Translate line-endings for .DO files?
+* Fixup filenames each time one is handled, to add or remove the space-padding as needed.
+
 
 ## Change-log
 ### 20180825 bkw

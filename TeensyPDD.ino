@@ -5,17 +5,24 @@
  *  
  *  Arduino IDE build options:
  *  * Tools -> Board: Teensy 3.6
- *  * Tools -> CPU Speed -> 2MHz (no USB)
+ *  Production:
+ *  * Tools -> USB -> No USB
+ *  * Tools -> CPU Speed -> 2MHz
  *  * Tools -> Optimize: Fastest
- *  
+ *  * "#undef CONS" below
+ *  Devel/Debug:
+ *  * Tools -> USB -> Serial
+ *  * Tools -> CPU Speed -> 180MHz (any speed 24Mhz or more)
+ *  * Tools -> Optimize: Fastest
+ *  * "#define CONS" below
  */
 
 // Serial port for tpdd protocol
 #define CLIENT Serial1
 #define CLIENT_BAUD 19200
 // uncomment to enable RTS/CTS
-#define CLIENT_RTS_PIN 21   //Teensy 3.5/3.6 allows any
-#define CLIENT_CTS_PIN 20   //Teensy 3.5/3.6 allows 18 or 20. 18 is used for OLED.
+#define CLIENT_RTS_PIN 21   //Teensy 3.5/3.6 can use any pin for RTS
+#define CLIENT_CTS_PIN 20   //Teensy 3.5/3.6 can use pin 18 or 20 for CTS
 
 // Debug console - where shall all console messages go
 // Teensy can not use Serial (usb) below 24mhz
@@ -52,26 +59,26 @@
 #include <SdFat.h>
 SdFatSdioEX SD;
 
-File root;  //Root file for filesystem reference
-File entry; //Moving file entry for the emulator
-File tempEntry; //Temporary entry for moving files
+File root;      // Root file for filesystem reference
+File entry;     // Moving file entry for the emulator
+File tempEntry; // Temporary entry for moving files
 
-byte head = 0x00;  //Head index
-byte tail = 0x00;  //Tail index
+byte head = 0x00;               // Head index
+byte tail = 0x00;               // Tail index
 
-byte checksum = 0;  //Global variable for checksum calculation
+byte checksum = 0;              // Global variable for checksum calculation
 
-byte state = 0; //Emulator command reading state
-bool DME = false; //TS-DOS DME mode flag
+byte state = 0;                 // Emulator command reading state
+bool DME = false;               // TS-DOS DME mode flag
 
-byte dataBuffer[256]; //Data buffer for commands
-byte fileBuffer[0x80]; //Data buffer for file reading
+byte dataBuffer[256];           // Data buffer for commands
+byte fileBuffer[0x80];          // Data buffer for file reading
 
-char refFileName[25] = "";  //Reference file name for emulator
-char refFileNameNoDir[25] = ""; //Reference file name for emulator with no ".<>" if directory
-char tempRefFileName[25] = ""; //Second reference file name for renaming
-char entryName[24] = "";  //Entry name for emulator
-int directoryBlock = 0; //Current directory block for directory listing
+char refFileName[25] = "";      // Reference file name for emulator
+char refFileNameNoDir[25] = ""; // Reference file name for emulator with no ".<>" if directory
+char tempRefFileName[25] = "";  // Second reference file name for renaming
+char entryName[24] = "";        // Entry name for emulator
+int directoryBlock = 0;         // Current directory block for directory listing
 char directory[60] = "/";
 byte directoryDepth = 0;
 char tempDirectory[60] = "/";
@@ -94,10 +101,9 @@ void setup() {
 
   CPRINT("TeensyPDD\r\n");
 
-  clearBuffer(dataBuffer, 256); //Clear the data buffer
+  clearBuffer(dataBuffer, 256); // Clear the data buffer
 
   while(initCard()>0) delay(1000);
-
 }
 
 int initCard () {
@@ -158,26 +164,21 @@ void printDirectory(File dir, int numTabs) { //Copied code from the file list ex
 }
 #endif // CONS
 
-void clearBuffer(byte* buffer, int bufferSize){ //Fills the buffer with 0x00
-  for(int i=0; i<bufferSize; i++){
-    buffer[i] = 0x00;
-  }
+void clearBuffer(byte* a, int l){ //Fills the buffer with 0x00
+  for(int i=0; i<l; i++) a[i] = 0x00;
 }
 // TODO: less-stupid way than duplicating
-void clearBufferC(char* buffer, int bufferSize){ //char version of clearBuffer()
-  for(int i=0; i<bufferSize; i++){
-    buffer[i] = 0x00;
-  }
+void clearBufferC(char* a, int l){ //char version of clearBuffer()
+  for(int i=0; i<l; i++) a[i] = 0x00;
 }
 
-void directoryAppend(char* c){  //Copy a null-terminated char array to the directory array
+// Copy a null-terminated char array to the directory array
+void directoryAppend(char* c){
   bool terminated = false;
   int i = 0;
   int j = 0;
   
-  while(directory[i] != 0x00){  //Jump i to first null character
-    i++;
-  }
+  while(directory[i] != 0x00) i++; // Jump i to first null character
 
   while(!terminated){
     directory[i++] = c[j++];
@@ -186,26 +187,18 @@ void directoryAppend(char* c){  //Copy a null-terminated char array to the direc
   CPRINT(directory);
 }
 
-void upDirectory(){ //Removes the top-most entry in the directoy path
+// Remove the top-most entry in the directoy path
+void upDirectory(){
   int j = sizeof(directory);
 
-  while(directory[j] == 0x00){ //Jump to first non-null character
-    j--;
-  }
-
-  if(directory[j] == '/' && j!= 0x00){  //Strip away the slash character
-    directory[j] = 0x00;
-  }
-
-  while(directory[j] != '/'){ //Move towards the front of the array until a slash character is encountered...
-    directory[j--] = 0x00;  //...set everything along the way to null characters
-  }
+  while(directory[j] == 0x00) j--; // Scan from end back to first(last) non-null
+  if(directory[j] == '/' && j!= 0x00) directory[j] = 0x00; // Strip slash
+  while(directory[j] != '/') directory[j--] = 0x00; // scan & clear until next slash
 }
 
-void copyDirectory(){ //Makes a copy of the working directory to a scratchpad
-  for(unsigned i=0; i<sizeof(directory); i++){
-    tempDirectory[i] = directory[i];
-  }
+// copy working directory to scratchpad
+void copyDirectory(){
+  for(unsigned i=0; i<sizeof(directory); i++) tempDirectory[i] = directory[i];
 }
 
 /*
@@ -263,21 +256,15 @@ void return_reference(){  //Sends a reference return to the TPDD port
   
   if(DME && entry.isDirectory()){ //      !!!Tacks ".<>" on the end of the return reference if we're in DME mode and the reference points to a directory
     for(int i=0; i < 7; i++){ //Find the end of the directory's name by looping through the name buffer
-      if(tempRefFileName[i] == 0x00){
-        term = i; //and setting a termination index to the offset where the termination is encountered
-      }
+      if(tempRefFileName[i] == 0x00) term = i; //and setting a termination index to the offset where the termination is encountered
     }
     tempRefFileName[term++] = '.';  //Tack the expected ".<>" to the end of the name
     tempRefFileName[term++] = '<';
     tempRefFileName[term++] = '>';
 
-    for(int i=term; i<24; i++){ //Fill the rest of the reference name with null characters
-      tempRefFileName[i] = 0x00;
-    }
+    for(int i=term; i<24; i++) tempRefFileName[i] = 0x00; // fill rest of reference name with nulls
     term = 6; //Reset the termination index to prepare for the next check
   }
-
-  
 
   for(int i=0; i<6; i++){ //      !!!Pads the name of the file out to 6 characters using space characters
     if(term == 6){  //Perform these checks if term hasn't changed
@@ -292,9 +279,7 @@ void return_reference(){  //Sends a reference return to the TPDD port
     }
   }
 
-  for(int i=0; i<18; i++){  //      !!!Outputs the file extension part of the reference name starting at the offset found above
-    tpddWrite(tempRefFileName[i+term]);
-  }
+  for(int i=0; i<18; i++) tpddWrite(tempRefFileName[i+term]); // write extension
 
   tpddWrite(0x00);  //Attribute, unused
   tpddWrite((byte)((entry.fileSize()&0xFF00)>>8));  //File size most significant byte
@@ -347,7 +332,7 @@ void return_parent_reference(){
  */
 
 void command_reference(){ //Reference command handler
-  byte searchForm = dataBuffer[(byte)(tail+29)];  //The search form byte exists 29 bytes into the command
+  byte searchForm = dataBuffer[(byte)(tail+29)];  // The search form byte exists 29 bytes into the command
   byte refIndex = 0;  //Reference file name index
   
   CPRINT("SF:");
@@ -431,7 +416,7 @@ void ref_openNext(){
 
   entry = root.openNextFile();  //Open the entry
   
-  if(entry){  //If the entry exists it is returned
+  if(entry) {  //If the entry exists it is returned
     if(entry.isDirectory() && !DME){  //If it's a directory and we're not in DME mode
       entry.close();  //the entry is skipped over
       ref_openNext(); //and this function is called again
@@ -460,18 +445,18 @@ void command_open(){  //Opens an entry for reading, writing, or appending
   if(DME && strcmp(refFileNameNoDir, "PARENT") == 0){ //If DME mode is enabled and the reference is for the "PARENT" directory
     upDirectory();  //The top-most entry in the directory buffer is taken away
     directoryDepth--; //and the directory depth index is decremented
-  }else{
+  } else {
     directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
     if(DME && (int)strstr(refFileName, ".<>") != 0 && !SD.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
       SD.mkdir(directory);  //create the directory
       upDirectory();
-    }else{
+    } else {
       entry=SD.open(directory); //Open the directory to reference the entry
-      if(entry.isDirectory()){  //      !!!Moves into a sub-directory
-        entry.close();  //If the entry is a directory
-        directoryAppend(s); //append a slash to the directory buffer
-        directoryDepth++; //and increment the directory depth index
-      }else{  //If the reference isn't a sub-directory, it's a file
+      if(entry.isDirectory()){  // !!!Moves into a sub-directory
+        entry.close();          //If the entry is a directory
+        directoryAppend(s);     //append a slash to the directory buffer
+        directoryDepth++;       //and increment the directory depth index
+      } else {                  //If the reference isn't a sub-directory, it's a file
         entry.close();
         switch(rMode){
           case 0x01: entry = SD.open(directory, FILE_WRITE); break; //Write
@@ -510,9 +495,7 @@ void command_read(){  //Read a block of data from the currently open entry
   if(bytesRead > 0){  //Send the read return if there is data to be read
     tpddWrite(0x10);  //Return type
     tpddWrite(bytesRead); //Data length
-    for(int i=0; i<bytesRead; i++){
-      tpddWrite(fileBuffer[i]);
-    }
+    for(int i=0; i<bytesRead; i++) tpddWrite(fileBuffer[i]);
     tpddSendChecksum();
   }else{
     return_normal(0x3F);  //send a normal return with an end-of-file error if there is no data left to read
@@ -601,6 +584,7 @@ void command_rename(){  //Renames the currently open entry
 
   if(DME && entry.isDirectory()){ //      !!!If the entry is a directory, we need to strip the ".<>" off of the new directory name
     if(strstr(tempRefFileName, ".<>") != 0){
+      // FIXME unsafe assumption deleting these chars this way?
       for(int i=0; i<24; i++){
         if(tempRefFileName[i] == '.' || tempRefFileName[i] == '<' || tempRefFileName[i] == '>'){
           tempRefFileName[i]=0x00;
@@ -610,9 +594,7 @@ void command_rename(){  //Renames the currently open entry
   }
 
   directoryAppend(tempRefFileName);
-  if(entry.isDirectory()){
-    directoryAppend(s);
-  }
+  if(entry.isDirectory())directoryAppend(s);
 
   CPRINT(directory);
   CPRINT("\r\n");
@@ -624,7 +606,7 @@ void command_rename(){  //Renames the currently open entry
 
   entry.close();
   
-  return_normal(0x00);  //Send a normal return to the TPDD port with no error
+  return_normal(0x00);
 }
 
 /*
@@ -648,6 +630,19 @@ void command_DMEReq(){  //Send the DME return with the root directory's name
   }
 }
 
+void command_mystery1(){ //Not implemented
+  CPRINT("mystery1\r\n");
+  //if(!initCard()) return;
+  return_normal(0x00);
+}
+
+void command_mystery2(){ //Not implemented
+  CPRINT("mystery2\r\n");
+  //if(!initCard()) return;
+  return_normal(0x00);
+}
+
+
 /*
  * 
  * Main code loop
@@ -655,23 +650,21 @@ void command_DMEReq(){  //Send the DME return with the root directory's name
  */
 
 void loop() {
-  byte rType = 0; //Current request type (command type)
-  byte rLength = 0; //Current request length (command length)
-  byte diff = 0;  //Difference between the head and tail buffer indexes
-//  byte b = 0;
+  byte rType = 0;   // Current request type (command type)
+  byte rLength = 0; // Current request length (command length)
+  byte diff = 0;    // Difference between the head and tail buffer indexes
 
   state = 0; //0 = waiting for command 1 = waiting for full command 2 = have full command
   
-  while(state<2){ //While waiting for a command...
-    while (CLIENT.available() > 0){  //While there's data to read from the TPDD port...
-      //b = CLIENT.read();
-      //CPRINT(b);
-      //dataBuffer[head++] = b;  //...pull the character from the TPDD port and put it into the command buffer, increment the head index...
-      dataBuffer[head++] = (byte)CLIENT.read();  //...pull the character from the TPDD port and put it into the command buffer, increment the head index...
-      if(tail==head){ //...if the tail index equals the head index (a wrap-around has occoured! data will be lost!)
-        tail++; //...increment the tail index to prevent the command size from overflowing.
-      }
-      CPRINTI((byte)(head-1),HEX); //Debug code
+  while(state<2){  // While waiting for a command...
+    while (CLIENT.available() > 0){  // While there's data to read from the client...
+      dataBuffer[head++] = (byte)CLIENT.read();  //...read a byte, increment the head index
+
+      // if tail index == head index, a wrap-around has occurred! data will be lost!
+      // increment tail index to prevent command size from overflowing
+      if(tail==head) tail++;
+
+      CPRINTI((byte)(head-1),HEX);
       CPRINT("-");
       CPRINTI(tail,HEX);
       CPRINTI((byte)(head-tail),HEX);
@@ -684,52 +677,54 @@ void loop() {
 
     diff=(byte)(head-tail); //...set the difference between the head and tail index (number of bytes in the buffer)
 
-    if(state == 0){ //...if we're waiting for a command...
-      if(diff >= 4){  //...if there are 4 or more characters in the buffer...
-        if(dataBuffer[tail]=='Z' && dataBuffer[(byte)(tail+1)]=='Z'){ //...if the buffer's first two characters are 'Z' (a TPDD command)
+    if(state == 0) { //...if we're waiting for a command...
+      if(diff >= 4) { //...if there are 4 or more characters in the buffer...
+        if(dataBuffer[tail]=='Z' && dataBuffer[(byte)(tail+1)]=='Z') { //...if the buffer's first two characters are 'Z' (a TPDD command)
           rLength = dataBuffer[(byte)(tail+3)]; //...get the command length...
           rType = dataBuffer[(byte)(tail+2)]; //...get the command type...
-          state = 1;  //...set the state to "waiting for full command".
-        }else if(dataBuffer[tail]=='M' && dataBuffer[(byte)(tail+1)]=='1'){ //If a DME command is received
+          state = 1; //...set the state to "waiting for full command".
+        } else if(dataBuffer[tail]=='M' && dataBuffer[(byte)(tail+1)]=='1') { //If a DME command is received
           DME = true; //set the DME mode flag to true
-          tail=tail+2;  //and skip past the command to the DME request command
-        }else{  //...if the first two characters are not 'Z'...
+          tail=tail+2; //and skip past the command to the DME request command
+        } else { //...if the first two characters are not 'Z'...
           tail=tail+(tail==head?0:1); //...move the tail index forward to the next character, stop if we reach the head index to prevent an overflow.
         }
       }
     }
 
-    if(state == 1){ //...if we're waiting for the full command to come in...
+    if(state == 1) { //...if we're waiting for the full command to come in...
       if(diff>rLength+4){ //...if the amount of data in the buffer satisfies the command length...
-          state = 2;  //..set the state to "have full command".
-        }
+        state = 2; //..set the state to "have full command".
+      }
     }
-  } 
+  }
 
   CPRINTI(tail,HEX); //Debug code that displays the tail index in the buffer where the command was found...
   CPRINT("=");
   CPRINT("T:"); //...the command type...
   CPRINTI(rType, HEX);
-  CPRINT("|L:");  //...and the command length.
+  CPRINT("|L:"); //...and the command length.
   CPRINTI(rLength, HEX);
   CPRINT(DME?'D':'.');
   CPRINT("\r\n");
-  
-  switch(rType){  //Select the command handler routine to jump to based on the command type
+
+  switch(rType) {
     case 0x00: command_reference(); break;
     case 0x01: command_open(); break;
     case 0x02: command_close(); break;
-    case 0x03: command_read() ; break;
-    case 0x04: command_write() ; break;
-    case 0x05: command_delete() ; break;
-    case 0x06: command_format() ; break;
-    case 0x07: command_status() ; break;
-    case 0x08: command_DMEReq() ; break; //DME Command
-    case 0x0C: command_condition() ; break;
-    case 0x0D: command_rename() ; break;
-    default: return_normal(0x36); CPRINT("ERR\r\n") ; break;
+    case 0x03: command_read(); break;
+    case 0x04: command_write(); break;
+    case 0x05: command_delete(); break;
+    case 0x06: command_format(); break;
+    case 0x07: command_status(); break;
+    case 0x08: command_DMEReq(); break; // (drive condition)
+    case 0x0C: command_condition(); break;
+    case 0x0D: command_rename(); break;
+    case 0x23: command_mystery2(); break;
+    case 0x31: command_mystery1(); break;
+    default: return_normal(0x36); CPRINT("ERR\r\n"); break;
   }
-  
+
   CPRINTI(head,HEX);
   CPRINT(":");
   CPRINTI(tail,HEX);
@@ -737,5 +732,5 @@ void loop() {
   tail = tail+rLength+5;  //Increment the tail index past the previous command
   CPRINTI(tail,HEX);
   CPRINT("\r\n");
-  
+
 }
