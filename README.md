@@ -13,6 +13,14 @@ BUGS:
 * Some kind of working directory initial/default state issue where:
 : TS-DOS can successfully load a file like DOS100.CO from the root dir,
 : but Ultimate Rom 2 usually can not load that same file, but sometimes it can.
+: update:
+: If you try to use TS-DOS from UR2 after a fresh power-cycle of both TeensyPDD and the M100,
+: It doesn't work. But If you load TS-DOS (for example, use a REX to switch roms from UR2 to TS-DOS)
+: use TS-DOS to read the directory listing once, then switch roms back to UR-2, then the TS-DOS
+: menu entry in UR-2 works (successfully loads DOS100.CO from the disk).
+: So TS-DOS does some kind of initialization that UR-2 isn't doing. UR-2 works fine
+: with a real TPDD/TPDD2 and dlplus, so there must be some sort of default condition that
+: we should be resetting to.
 * If you use UR-2 to load TS-DOS in ram from the TeensyPDD,
 : and switch to a subdirectory like /Games while in TS-DOS, then exit TS-DOS,
 : You can't use TS-DOS any more, because the next time UR-2 tries to load DOS100.CO
