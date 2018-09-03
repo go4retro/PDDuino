@@ -30,6 +30,8 @@ BUGS:
 : If you have DOS100.CO in ram, then UR-2 works because it will use that copy if available.
 : And TS-DOS (rom or ram) seems to be working pretty well all the time.
 * When UR-2 loads DOS100.CO, sucessfully or not, the LED doesn't shut off after.
+* Diesplays PARENT.<> entry even when you are already in the root dir.
+: Goes away if you try to open PARENT.<> when you're already in root.
 
 
 ## Requirements
