@@ -38,8 +38,9 @@ Bill Greiman's SdFat library
 
 ## Assembly
 ### Hardware
-* Attach the RS232 level shifter to Teensy pins 0(RX1),1(TX1),20(CTS1),21(RTS1),GND,3.3V
+* Attach the RS232 level shifter to Teensy pins 0(RX1),1(TX1),GND,3.3V
 * Bridge the DTR and DSR pins on the RS232 connector (Required for TS-DOS)
+* You can ignore RTS/CTS entirely. (Don't have to connect them or even short them)
 
 ## Notes
 If you plan on using TS-DOS, some versions require that you have a DOS100.CO file on the root of the media. This file can be downloaded from here:
@@ -55,6 +56,7 @@ http://www.club100.org/nads/dos100.co
 * Translate line-endings for .DO files?
 * Fixup filenames each time one is handled, to add or remove the space-padding as needed.
 * Instead of waiting for sd card in setup(), detect missing sdcard and send back proper error in loop(), so that TS-DOS doesn't lock up.
+* Make optional instructions to hook up DSR/DTR/DCD to a real pin, maybe via the otherwise un-used RTS/CTS pins on the rs232 shifter, so that the Teensy uses it to actually signal drive-ready instead of just being shorted.
 
 
 ## Change-log
