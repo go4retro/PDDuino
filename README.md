@@ -29,6 +29,8 @@ BUGS:
 : what makes UR-2 work sometimes but not others.
 : If you have DOS100.CO in ram, then UR-2 works because it will use that copy if available.
 : And TS-DOS (rom or ram) seems to be working pretty well all the time.
+* When UR-2 loads DOS100.CO, sucessfully or not, the LED doesn't shut off after.
+
 
 ## Requirements
 ### Hardware
