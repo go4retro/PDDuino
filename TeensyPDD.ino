@@ -40,7 +40,7 @@
 //#undef DRIVE_ACTVITY
 
 #include <avr/sleep.h>
-int wakePin = 2;         // tied to RX1 to wake on serial
+int wakePin = 0;         // Use pin# for RX1 to wake on serial
 
 #if defined(CONS)
  #define CPRINT(x)    CONS.print (x)
