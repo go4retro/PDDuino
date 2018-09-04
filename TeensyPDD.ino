@@ -39,6 +39,9 @@
 #define DRIVE_ACTVITY
 //#undef DRIVE_ACTVITY
 
+#include <avr/sleep.h>
+int wakePin = 2;         // tied to RX1 to wake on serial
+
 #if defined(CONS)
  #define CPRINT(x)    CONS.print (x)
  #define CPRINTI(x,y)  CONS.print (x,y)
@@ -87,6 +90,17 @@ char tempDirectory[60] = "/";
 
 void setup() {
   PINMODE_LED_OUTPUT
+  pinMode(wakePin,INPUT);
+  attachInterrupt(0,wakeNow,CHANGE);
+
+#if defined(CONS) && CONS == Serial
+  CONS.begin(115200);
+  while(!CONS);
+#endif
+
+  CPRINT("\r\nTeensyPDD\r\n\r\n");
+
+  clearBuffer(dataBuffer, 256); // Clear the data buffer
 
   CLIENT.begin(CLIENT_BAUD);
   CLIENT.clear();
@@ -96,16 +110,10 @@ void setup() {
   CLIENT.attachCts(CLIENT_CTS_PIN);
 #endif 
 
-#if defined(CONS) && CONS == Serial
-  CONS.begin(115200);
-  while(!CONS);
-#endif
-
-  CPRINT("TeensyPDD\r\n");
-
-  clearBuffer(dataBuffer, 256); // Clear the data buffer
-
   while(initCard()>0) delay(1000);
+
+  sleepNow();
+
 }
 
 int initCard () {
@@ -675,6 +683,8 @@ void loop() {
   byte diff = 0;                                 // Difference between the head and tail buffer indexes
 
   state = 0;                                     // 0 = waiting for command 1 = waiting for full command 2 = have full command
+
+  sleepNow();                                    // go to sleep until serial activity wakes us up
   
   while(state<2) {                               // While waiting for a command...
     while (CLIENT.available() > 0) {             // While there's data to read from the client...
@@ -753,4 +763,23 @@ void loop() {
   CPRINTI(tail,HEX);
   CPRINT("\r\n");
 
+}
+
+//bool l;
+//void serialEvent1 () {
+//  l = !l;
+//  if(l) LOFF else LON
+//  return;
+//}
+
+void wakeNow () {
+}
+void sleepNow() {
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+    attachInterrupt(0,wakeNow,CHANGE);
+    sleep_mode();            // here the device is actually put to sleep!!
+    // THE PROGRAM CONTINUES FROM HERE AFTER WAKING UP
+    sleep_disable();         // first thing after waking from sleep: disable sleep...
+    detachInterrupt(0);      // disables interrupt 0 on pin 2 so the wakeUpNow code will not be executed during normal running time.
 }
