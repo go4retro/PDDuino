@@ -6,6 +6,7 @@ Based on Jimmy Petit's SD2TPDD
 Status:
 * Emulate the basic file-access functions of a TPDD1
 * Provide DME directory access
+* deep sleep between uart events
 
 BUGS:
 * Works with real TS-DOS, but file transfers don't actually work with TpddTool.py
@@ -72,6 +73,9 @@ http://www.club100.org/nads/dos100.co
 
 
 ## Change-log
+### 20180905 bkw
+* sleep_mode() working
+
 ### 20180825 bkw
 * Ported Jimmy Petit's SD2TPDD to Teensy 3.5/3.6
 
