@@ -90,8 +90,9 @@ char tempDirectory[60] = "/";
 
 void setup() {
   PINMODE_LED_OUTPUT
+  //pinMode(33,OUTPUT);  // debugging - sleep mode indicator
   pinMode(wakePin,INPUT);
-  attachInterrupt(0,wakeNow,CHANGE);
+  attachInterrupt(wakePin,wakeNow,CHANGE);
 
 #if defined(CONS) && CONS == Serial
   CONS.begin(115200);
@@ -687,6 +688,7 @@ void loop() {
   sleepNow();                                    // go to sleep until serial activity wakes us up
   
   while(state<2) {                               // While waiting for a command...
+    sleepNow();
     while (CLIENT.available() > 0) {             // While there's data to read from the client...
       dataBuffer[head++] = (byte)CLIENT.read();  //...read a byte, increment the head index
 
@@ -776,10 +778,10 @@ void wakeNow () {
 }
 void sleepNow() {
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    sleep_enable();
-    attachInterrupt(0,wakeNow,CHANGE);
-    sleep_mode();            // here the device is actually put to sleep!!
+    //digitalWrite(33,HIGH);        // debugging - show when in sleep mode
+    attachInterrupt(wakePin,wakeNow,CHANGE);
+    sleep_mode();                 // here the device is actually put to sleep!!
     // THE PROGRAM CONTINUES FROM HERE AFTER WAKING UP
-    sleep_disable();         // first thing after waking from sleep: disable sleep...
-    detachInterrupt(0);      // disables interrupt 0 on pin 2 so the wakeUpNow code will not be executed during normal running time.
+    detachInterrupt(wakePin);           // disables interrupt 0 on wakePin so the wakeNow code will not be executed during normal running time.
+    //digitalWrite(33,LOW);         // debugging
 }
