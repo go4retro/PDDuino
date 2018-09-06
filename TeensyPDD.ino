@@ -39,6 +39,7 @@
 #define DRIVE_ACTVITY
 //#undef DRIVE_ACTVITY
 
+// Enable sleeping for power-saving
 #include <avr/sleep.h>
 int wakePin = 0;         // Use pin# for RX1 to wake on serial
 
@@ -50,6 +51,9 @@ int wakePin = 0;         // Use pin# for RX1 to wake on serial
  #define CPRINTI(x,y)
 #endif
 
+// Teensy's sdcard reader does not use any of the same pins as the on-board led,
+// so if you want a disk-activity light, you have to do it yourself.
+// digitalWrite() is inefficient.
 #if defined(DRIVE_ACTVITY)
 // on-board LED - PORTB bit 5
 #define PINMODE_LED_OUTPUT DDRB = DDRB |= 1UL << 5; // pinMode(13,OUTPUT);
@@ -61,8 +65,12 @@ int wakePin = 0;         // Use pin# for RX1 to wake on serial
 #define LOFF
 #endif // DRIVE_ACTIVITY
 
+// Enable use of sdcard reader, and FAT filesystems, and Teensy3.5/3.6 special sd hardware.
 #include <SdFat.h>
 SdFatSdioEX SD;
+
+// Enable use of Teensy built-in RTC
+//#include <TimeLib.h>
 
 File root;                      // Root file for filesystem reference
 File entry;                     // Moving file entry for the emulator
@@ -90,9 +98,14 @@ char tempDirectory[60] = "/";
 
 void setup() {
   PINMODE_LED_OUTPUT
+
+  // power-saving
   //pinMode(33,OUTPUT);  // debugging - sleep mode indicator
   pinMode(wakePin,INPUT);
   attachInterrupt(wakePin,wakeNow,CHANGE);
+
+  // set the Time library to use Teensy 3.0's RTC to keep time
+  //setSyncProvider(Teensy3Clock.get);
 
 #if defined(CONS) && CONS == Serial
   CONS.begin(115200);
@@ -111,22 +124,32 @@ void setup() {
   CLIENT.attachCts(CLIENT_CTS_PIN);
 #endif 
 
-  while(initCard()>0) delay(1000);
+  while(initCard()>0);
 
   sleepNow();
 
 }
 
 int initCard () {
-
   //if (root.isOpen()) return 0;
   
   CPRINT("Opening SD card...");
 
   if (SD.begin()) {
     CPRINT("OK.\r\n");
+    LON
+    delay (80);
+    LOFF
+    delay (80);
+    LON
+    delay (80);
+    LOFF
   } else {
     CPRINT("No SD card.\r\n");
+    LON
+    delay (500);
+    LOFF
+    delay (500);
     return 1;
   }
 
@@ -148,13 +171,13 @@ int initCard () {
 
 #if defined(CONS)
 void printDirectory(File dir, int numTabs) { // Copied code from the file list example for debug purposes
-  char fileName[24] = "";
+  char fileName[25] = "";
   while (true) {
 
     File entry = dir.openNextFile();
     if (!entry) break;
     for (uint8_t i = 0; i < numTabs; i++) CPRINT('\t');
-    entry.getName(fileName,24);
+    entry.getName(fileName,25);
     CPRINT(fileName);
     if (entry.isDirectory()) {
       CPRINT("/\r\n");
@@ -276,10 +299,10 @@ void return_reference(){
       if(tempRefFileName[i]=='.') {
         term = i;                     // If we encounter a '.' character, set the temrination pointer to the current offset and output a space character instead
         tpddWrite(' ');
-      }else{
+      } else {
         tpddWrite(tempRefFileName[i]);  // If we haven't encountered a period character, output the next character
       }
-    }else{
+    } else {
       tpddWrite(' '); // If we did find a period character, write a space character to pad the reference name
     }
   }
@@ -355,9 +378,7 @@ void command_reference() {
 #if defined(CONS)
         r[refIndex] = dataBuffer[(byte)(tail+i)];    // debug see raw filename
 #endif
-        if(dataBuffer[(byte)(tail+i)]!=0x20) {                   // If the char pulled from the command is not a space character (0x20)...
-          refFileName[refIndex++]=dataBuffer[(byte)(tail+i)];    // write it into the buffer and increment the index.
-        }
+        if(dataBuffer[(byte)(tail+i)]!=0x20) refFileName[refIndex++]=dataBuffer[(byte)(tail+i)];
     }
     refFileName[refIndex]=0x00;                                  //Terminate the file name buffer with a null character
 
@@ -393,6 +414,8 @@ void command_reference() {
       entry=SD.open(directory);                                  // ...open it...
       return_reference();                                        // send a refernce return to the TPDD port with its info...
       entry.close();                                             // ...close the entry.
+//    } else if (strstr(refFileName,".VF") == 0) {                 // If the filename is a virtual file...
+//      return_vf_reference();
     } else {                                                     // If the file does not exist...
       return_blank_reference();
     }
@@ -465,7 +488,7 @@ void command_open() {
     directoryDepth--;                                            // and the directory depth index is decremented
   } else {
     directoryAppend(refFileNameNoDir);                           // Push the reference name onto the directory buffer
-    if(DME && (int)strstr(refFileName, ".<>") != 0 && !SD.exists(directory)) { // If the reference is for a directory and the directory buffer points to a directory that does not exist
+    if(DME && (int)strstr(refFileName, ".<>") != 0 && !SD.exists(directory)) {
       SD.mkdir(directory);                                       // create the directory
       upDirectory();
     } else {
@@ -643,7 +666,7 @@ void command_rename() {
 // Send the DME return with the root directory's name
 // TODO use volume name?
 void command_DMEReq() {
-  char r[12] = " TNSYDD.<> "; // Must be 6.2, + 1 leading & 1 trailing space. 12 bytes total including the null.
+  char r[12] = " Teensy.<> "; // Must be 6.2, + 1 leading & 1 trailing space. 12 bytes total including the null.
   CPRINT("DMEReq\r\n");
   //if(!initCard()) return;
   
@@ -686,7 +709,7 @@ void loop() {
   state = 0;                                     // 0 = waiting for command 1 = waiting for full command 2 = have full command
 
   sleepNow();                                    // go to sleep until serial activity wakes us up
-  
+
   while(state<2) {                               // While waiting for a command...
     sleepNow();
     while (CLIENT.available() > 0) {             // While there's data to read from the client...
@@ -717,7 +740,10 @@ void loop() {
           state = 1;                                                   // ...set the state to "waiting for full command".
         } else if(dataBuffer[tail]=='M' && dataBuffer[(byte)(tail+1)]=='1') {   // If a DME command is received
           DME = true;                                                  // set the DME mode flag to true
-          tail=tail+2;                                                 // and skip past the command to the DME request command
+          tail = tail+2;                                               // and skip past the command to the DME request command
+//        } else if(dataBuffer[tail]=='V' && dataBuffer[(byte)(tail+1)=='F') {
+//          VF = true;
+//          tail = tail + 2;
         } else {                                                       // ...if the first two characters are not 'Z'...
           tail=tail+(tail==head?0:1);                                  // ...move the tail index forward to the next character, stop if we reach the head index to prevent an overflow.
         }
@@ -736,6 +762,7 @@ void loop() {
   CPRINT(" rLength:");            // command length
   CPRINTI(rLength,HEX);
   CPRINT(DME?" DME":"");
+  //CPRINT(VF?" VF":"");
   CPRINT("\r\n");
 
   switch(rType) {
@@ -776,12 +803,24 @@ void loop() {
 
 void wakeNow () {
 }
+
 void sleepNow() {
     set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-    //digitalWrite(33,HIGH);        // debugging - show when in sleep mode
-    attachInterrupt(wakePin,wakeNow,CHANGE);
-    sleep_mode();                 // here the device is actually put to sleep!!
+    //digitalWrite(33,HIGH);         // debugging - show when in sleep mode
+    attachInterrupt(wakePin,wakeNow,LOW);
+    sleep_mode();                   // here the device is actually put to sleep!!
     // THE PROGRAM CONTINUES FROM HERE AFTER WAKING UP
-    detachInterrupt(wakePin);           // disables interrupt 0 on wakePin so the wakeNow code will not be executed during normal running time.
-    //digitalWrite(33,LOW);         // debugging
+    detachInterrupt(wakePin);       // disables interrupt 0 on wakePin so the wakeNow code will not be executed during normal running time.
+    //digitalWrite(33,LOW);          // debugging
 }
+
+//int vf_read_time (time_t t) {
+//    int e = 0;
+//    e = Teensy3Clock.set(t); // set the RTC
+//    setTime(t);              // set the system time
+//    return e;
+//}
+
+//time_t vf_write_time () {
+//    return now();            // get the system time
+//}
