@@ -90,7 +90,7 @@ byte fileBuffer[0x80];          // Data buffer for file reading
 char refFileName[25] = "";      // Reference file name for emulator
 char refFileNameNoDir[25] = ""; // Reference file name for emulator with no ".<>" if directory
 char tempRefFileName[25] = "";  // Second reference file name for renaming
-char entryName[24] = "";        // Entry name for emulator
+char entryName[25] = "";        // Entry name for emulator
 int directoryBlock = 0;         // Current directory block for directory listing
 char directory[60] = "/";
 byte directoryDepth = 0;
@@ -131,6 +131,10 @@ void setup() {
 }
 
 int initCard () {
+  //char vfn[] = "FAT-VOLUME";
+  //char vn[32] = "";
+  //int b = 0;
+  
   //if (root.isOpen()) return 0;
   
   CPRINT("Opening SD card...");
@@ -154,11 +158,28 @@ int initCard () {
   }
 
   SD.chvol();
-  root = SD.open(directory);  // Create the root filesystem entry
 
+  // read volume label
+  // TODO: locate entry with DIR_ATT_VOLUME_ID
+  // might have to hack SdFat library to expose it.
+  //CPRINT(vfn);
+  //CPRINT(": \"");
+  //entry = SD.open(vfn,FILE_READ);
+  //b = entry.read(vn,0x80);
+  //for(int i=0; i<b; i++) {
+  //  CPRINT(vn[i]);
+  //}
+  //entry.close();
+  //CPRINT("\"\r\n");
+
+  // Always do the open & close, regardless if we do the listing.
+  // It causes SdFat library to put the card to sleep, and draws much less power after the first SdFat transaction.
+  root = SD.open(directory);
 #if defined(CONS)
   printDirectory(root,0);     // Print directory for debug purposes
 #endif
+  root.close();
+
   return 0;
 }
 
@@ -169,8 +190,9 @@ int initCard () {
  * 
  */
 
+// Copied code from the file list example for debug purposes
 #if defined(CONS)
-void printDirectory(File dir, int numTabs) { // Copied code from the file list example for debug purposes
+void printDirectory(File dir, int numTabs) {
   char fileName[25] = "";
   while (true) {
 
@@ -192,10 +214,11 @@ void printDirectory(File dir, int numTabs) { // Copied code from the file list e
 }
 #endif // CONS
 
-void clearBuffer(byte* a, int l) {      // Fills the buffer with 0x00
+// Fills the buffer with 0x00
+void clearBuffer(byte* a, int l) {
   for(int i=0; i<l; i++) a[i] = 0x00;
 }
-void clearBufferC(char* a, int l) {     // char version of clearBuffer()
+void clearBufferC(char* a, int l) {
   for(int i=0; i<l; i++) a[i] = 0x00;
 }
 
@@ -234,12 +257,14 @@ void copyDirectory(){
  * 
  */
 
-void tpddWrite(char c) {        // Outputs char c to TPDD port and adds to the checksum
+// Outputs char c to TPDD port and adds to the checksum
+void tpddWrite(char c) {
   checksum += c;
   CLIENT.write(c);
 }
 
-void tpddWriteString(char* c){  // Outputs a null-terminated char array c to the TPDD port
+// Outputs a null-terminated char array c to the TPDD port
+void tpddWriteString(char* c){
   int i = 0;
   while(c[i]!=0){
     checksum += c[i];
@@ -248,7 +273,8 @@ void tpddWriteString(char* c){  // Outputs a null-terminated char array c to the
   }
 }
 
-void tpddSendChecksum(){        // Outputs the checksum to the TPDD port and clears the checksum
+// Outputs the checksum to the TPDD port and clears the checksum
+void tpddSendChecksum(){
   CLIENT.write(checksum^0xFF);
   checksum = 0;
 }
@@ -525,6 +551,7 @@ void command_close() {
   LOFF
   return_normal(0x00);
 }
+
 
 // Read a block of data from the currently open entry
 void command_read() {
