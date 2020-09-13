@@ -26,8 +26,10 @@
 #define Teensy_36       3
 #define Adalogger_32u4  4
 #define Adalogger_M0    5
+#define UNO             6
 
-#define BOARD Adalogger_32u4
+//#define BOARD Adalogger_32u4
+#define BOARD UNO
 
 // log activity to serial monitor port
 // Console is set for 115200 no flow
@@ -36,7 +38,7 @@
 // Example, on Teensy3.6, with the port enabled at all, the sketch must be compiled to run the cpu at a minimum of 24mhz
 // but with the port disabled, the sketch can be compiled to run at the lowest possible option of only 2Mhz,
 // and that is still plenty enough to do the TPDD job, while burning the least amount of battery.
-#define DEBUG 0                 // disable unless actually debugging, usb-serial uses battery and cpu, and code waits for console at power-on.
+#define DEBUG 3                 // disable unless actually debugging, usb-serial uses battery and cpu, and code waits for console at power-on.
 #define DEBUG_ACTIVITY_LIGHT 0  // enable the debug led in general
 #define DEBUG_SLEEP 0           // use DEBUG_LED to debug sleep_mode()
 
@@ -58,6 +60,28 @@
   #define WAKE_PIN 0                    // CLIENT RX pin#, interrupt is attached to wake from sleep()
   #define SLEEP_INHIBIT 5000            // Idle grace period before sleeping, 0 = disable wait (always sleep immediately), 300,000 = wait idle for 5 minutes before sleeping
   #define DISK_ACTIVITY_LIGHT 1         // Enable led to show sd card activity
+  #define PINMODE_SD_LED_OUTPUT pinMode(13,OUTPUT);
+  #define SD_LED_ON digitalWrite(13,HIGH);
+  #define SD_LED_OFF digitalWrite(13,LOW);
+  #define PINMODE_DEBUG_LED_OUTPUT pinMode(13,OUTPUT);
+  #define DEBUG_LED_ON digitalWrite(13,HIGH);
+  #define DEBUG_LED_OFF digitalWrite(13,LOW);
+
+// Arduino UNO platform
+#elif BOARD == UNO
+  #define CONSOLE mySerial
+  #define CONSOLE_DECL SoftwareSerial mySerial(7,8); // RX, TX
+  #define CLIENT Serial
+  #define DTR_PIN 5
+  #define DSR_PIN 6
+  #define SD_CS_PIN 10
+  //#define SD_CD_PIN 7
+  #define DISABLE_SD_CS 0
+  #define USE_SDIO 0
+  #define ENABLE_SLEEP 1
+  #define WAKE_PIN 0
+  #define SLEEP_INHIBIT 5000
+  #define DISK_ACTIVITY_LIGHT 1
   #define PINMODE_SD_LED_OUTPUT pinMode(13,OUTPUT);
   #define SD_LED_ON digitalWrite(13,HIGH);
   #define SD_LED_OFF digitalWrite(13,LOW);
@@ -196,6 +220,9 @@
 #include <SdFatConfig.h>
 #include <SysCall.h>
 #include <sdios.h>
+#if DEBUG && defined CONSOLE && defined CONSOLE_DECL
+#include <SoftwareSerial.h>
+#endif
 
 #if USE_SDIO
 SdFatSdioEX SD;
@@ -268,6 +295,10 @@ char directory[DIRECTORY_SZ] = "/";
 byte directoryDepth = 0x00;
 char tempDirectory[DIRECTORY_SZ] = "/";
 char dmeLabel[0x07] = "";  // 6 chars
+
+#if DEBUG && defined CONSOLE && defined CONSOLE_DECL
+CONSOLE_DECL
+#endif
 
 #if ENABLE_SLEEP
  #if defined(ARDUINO_SAMD_ZERO)
@@ -950,6 +981,7 @@ void setup() {
 // if debug console enabled, blink led and wait for console to be attached before proceeding
 #if DEBUG && defined(CONSOLE)
   CONSOLE.begin(115200);
+
     while(!CONSOLE){
       DEBUG_LED_ON
       delay(0x60);
