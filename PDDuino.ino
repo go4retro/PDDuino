@@ -38,8 +38,8 @@
 // Example, on Teensy3.6, with the port enabled at all, the sketch must be compiled to run the cpu at a minimum of 24mhz
 // but with the port disabled, the sketch can be compiled to run at the lowest possible option of only 2Mhz,
 // and that is still plenty enough to do the TPDD job, while burning the least amount of battery.
-#define DEBUG 3                 // disable unless actually debugging, usb-serial uses battery and cpu, and code waits for console at power-on.
-#define DEBUG_ACTIVITY_LIGHT 0  // enable the debug led in general
+#define DEBUG 0                 // disable unless actually debugging, usb-serial uses battery and cpu, and code waits for console at power-on.
+#define DEBUG_ACTIVITY_LIGHT 1  // enable the debug led in general
 #define DEBUG_SLEEP 0           // use DEBUG_LED to debug sleep_mode()
 
 // File that sendLoader() will try to send to the client.
@@ -81,7 +81,7 @@
   //#define SD_CD_PIN 7
   #define DISABLE_SD_CS 0
   #define USE_SDIO 0
-  #define ENABLE_SLEEP 1
+  #define ENABLE_SLEEP 0
   #define WAKE_PIN 0
   #define SLEEP_INHIBIT 5000
   #define DISK_ACTIVITY_LIGHT 1
@@ -305,17 +305,20 @@ void printDirectory(File dir, byte numTabs) {
   SD_LED_ON
   while (true) {
     entry = dir.openNextFile();
-    if (!entry) break;
-    entry.getName(fileName,FILENAME_SZ);
-    for (byte i = 0x00; i < numTabs; i++) DEBUG_PRINT(F("\t"));
-    DEBUG_PRINT(fileName);
-    if (entry.isDirectory()) {
-      DEBUG_PRINTL(F("/"));
-      DEBUG_PRINT(F("--- printDirectory(")); DEBUG_PRINT(fileName); DEBUG_PRINT(F(",")); DEBUG_PRINT(numTabs+0x01); DEBUG_PRINTL(F(") start ---"));
-      printDirectory(entry, numTabs + 0x01);
-      DEBUG_PRINT(F("--- printDirectory(")); DEBUG_PRINT(fileName); DEBUG_PRINT(F(",")); DEBUG_PRINT(numTabs+0x01); DEBUG_PRINTL(F(") end ---"));
-    } else {
-      DEBUG_PRINT(F("\t\t")); DEBUG_PRINTIL(entry.fileSize(), DEC);
+    if (!entry)
+      break;
+    if(!entry.isHidden()) {
+      entry.getName(fileName,FILENAME_SZ);
+      for (byte i = 0x00; i < numTabs; i++) DEBUG_PRINT(F("\t"));
+      DEBUG_PRINT(fileName);
+      if (entry.isDirectory()) {
+        DEBUG_PRINTL(F("/"));
+        DEBUG_PRINT(F("--- printDirectory(")); DEBUG_PRINT(fileName); DEBUG_PRINT(F(",")); DEBUG_PRINT(numTabs+0x01); DEBUG_PRINTL(F(") start ---"));
+        printDirectory(entry, numTabs + 0x01);
+        DEBUG_PRINT(F("--- printDirectory(")); DEBUG_PRINT(fileName); DEBUG_PRINT(F(",")); DEBUG_PRINT(numTabs+0x01); DEBUG_PRINTL(F(") end ---"));
+      } else {
+        DEBUG_PRINT(F("\t\t")); DEBUG_PRINTIL(entry.fileSize(), DEC);
+      }
     }
     entry.close();
   }
@@ -752,7 +755,7 @@ void ref_openNext(){
   entry = root.openNextFile();  //Open the entry
 
   if(entry){  //If the entry exists it is returned
-    if(entry.isDirectory() && !DME){  //If it's a directory and we're not in DME mode
+    if((entry.isDirectory() && !DME) || entry.isHidden()){  //If it's a directory and we're not in DME mode
       entry.close();  //the entry is skipped over
       ref_openNext(); //and this function is called again
     }
@@ -1022,7 +1025,12 @@ DEBUG_PRINTL(F("Using SDIO"));
   // TPDD2-style automatic bootstrap.
   // If client is open already at power-on,
   // then send LOADER.BA instead of going into main loop()
-  if(!digitalRead(DSR_PIN)) sendLoader();
+  if(!digitalRead(DSR_PIN)) {
+    #if DEBUG > 2
+    DEBUG_PRINT(F("Sending Loader"));
+    #endif
+    sendLoader();
+  }
 
 }
 
