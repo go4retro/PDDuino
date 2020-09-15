@@ -1,119 +1,102 @@
 /*
- * PDDuino
- * 20200828 Brian K. White b.kenyon.w@gmail.com
- * added restart() and sendLoader() - TPDD2-style bootstrap
- * 
- * 20180921 Brian K. White b.kenyon.w@gmail.com
- * #ifdefs to enable/disable a lot of stuff
- * added sleep_mode()
- * added disk activity led
- * #defines for the main configurable constants, use byte instead of int or larger where possible
- * converted most number literals to hex just for cosistency and because we are using byte in place of int so much
- * added dmeLabel[] and setLabel() - this shows the current sd card directory in TS-DOS
- * Support Teensy 3.5 & 3.6 boards, SDIO, sleep()
- * Support Adafruit Feather 32u4 Adalogger, sleep(), 2nd led
- * Support Adafruit Feather M0 Adalogger, sleep(), 2nd led
- *
- * SD2TPDD  V0.2
- * A TPDD emulator for the Arduino Mega that uses an SD card for mass storage.
- * Written by Jimmy Pettit
- * 07/27/2018
+ * PDDuino - Tandy Portable Disk Drive emulator on Arduino
+ * github.com/bkw777/PDDuino
+ * Based on github.com/TangentDelta/SD2TPDD
  */
 
-#define Generic         0
-#define Custom          1      // edit the "BOARD == Custom" block below to suit your hardware
-#define Teensy_35       2
-#define Teensy_36       3
-#define Adalogger_32u4  4
-#define Adalogger_M0    5
-#define UNO             6
-
-//#define BOARD Adalogger_32u4
-#define BOARD UNO
+#define SKETCH_NAME __FILE__
+#define SKETCH_VERSION "0.4.1"
+// 0.4.1 20200913 bkw - more IDE-supplied macros to un-hardcode where possible, more debug output
+// 0.4.0 20200828 bkw - sendLoader()
+// 0.3.0 20180921 bkw - Teensy & Feather boards, CLIENT & CONSOLE, setLabel(), sleepNow()
+// 0.2   20180728 Jimmy Pettit original
 
 // log activity to serial monitor port
 // Console is set for 115200 no flow
-// 0 = serial console disabled, 1 = enabled, least verbose, 2+ = enabled, more verbose
+// 0 or undef = disable serial console, 1 = enabled, least verbose, 2+ = enabled, more verbose
 // When disabled, the port itself is disabled, which frees up significant ram and cpu cycles on some hardware.
-// Example, on Teensy3.6, with the port enabled at all, the sketch must be compiled to run the cpu at a minimum of 24mhz
-// but with the port disabled, the sketch can be compiled to run at the lowest possible option of only 2Mhz,
-// and that is still plenty enough to do the TPDD job, while burning the least amount of battery.
-#define DEBUG 0                 // disable unless actually debugging, usb-serial uses battery and cpu, and code waits for console at power-on.
-#define DEBUG_ACTIVITY_LIGHT 1  // enable the debug led in general
-#define DEBUG_SLEEP 0           // use DEBUG_LED to debug sleep_mode()
+// Example, on Teensy 3.5/3.6, with the port enabled at all, the sketch must be compiled to run the cpu at a minimum of 24mhz
+// but with the port disabled, the sketch can be compiled to run at only 2Mhz. (Tools -> CPU Speed).
+// DEBUG will also be disabled if the selected BOARD_* section below doesn't define any CONSOLE port.
+#define DEBUG 3     // disable unless actually debugging, uses more battery, prevents full sleep, hangs at boot until connected
+//#define DEBUG_LED   // use led to see (some) activity even if no DEBUG or CONSOLE
+//#define DEBUG_SLEEP // use DEBUG_LED to debug sleepNow()
 
 // File that sendLoader() will try to send to the client.
+// Comment out to disable sendLoader() & ignore DSR_PIN
 #define LOADER_FILE "LOADER.DO"
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
 //--- configs for some handy boards that are small and have sd readers built in ---
 
-#if BOARD == Custom
+// Detect board/platform from IDE-supplied macros
+//
+// How to find these values.
+// There is no list, and no consistent rule, every manufacturer & board makes up something.
+// But in general, find the platform.txt and boards.txt for your board in the locations below (on linux)
+// ~/arduino-*/hardware/*/*/boards.txt               Arduino and Teensy
+// ~/arduino-*/hardware/*/*/platform.txt
+// ~/.arduino*/packages/*/hardware/*/*/boards.txt    Most others, ex: Adafruit, Heltec, etc
+// ~/.arduino*/packages/*/hardware/*/*/platform.txt
+//
+// platform.txt has gcc commandlines with "-D..." defines like "-DARDUINO_{something}"
+// boards.txt has "something=AVR_UNO"
+// so here we would look for "#if defined(ARDUINO_AVR_UNO)"
+
+#if defined(ARDUINO_AVR_FEATHER32U4)
+  #define BOARD_FEATHER32U4
+  #define BOARD_NAME "Adafruit Feather 32u4"
+
+#elif defined(ADAFRUIT_FEATHER_M0)
+  #define BOARD_FEATHERM0
+  #define BOARD_NAME "Adafruit Feather M0"
+
+#elif defined(ARDUINO_TEENSY35)
+  #define BOARD_TEENSY35
+  #define BOARD_NAME "Teensy 3.5"
+
+#elif defined(ARDUINO_TEENSY36)
+  #define BOARD_TEENSY36
+  #define BOARD_NAME "Teensy 3.6"
+
+#elif defined(ARDUINO_AVR_UNO)
+  #define BOARD_UNO
+  #define BOARD_NAME "Arduino UNO"
+
+#elif defined(ARDUINO_AVR_MEGA2560)
+  #define BOARD_MEGA
+  #define BOARD_NAME "Arduino MEGA"
+
+//#elif defined(ARDUINO_AVR_UNO)          // example to add a new board
+//  #define BOARD_UNO
+//  #define BOARD_NAME "Arduino UNO"
+
+#else
+  #define BOARD_DEFAULT
+  #define BOARD_NAME "Default"
+#endif
+
+#if defined(BOARD_DEFAULT)
   // User-defined platform details
-  #define CONSOLE Serial                // where to send debug messages, if enabled
-  #define CLIENT Serial1                // what serial port is the TPDD client connected to
-  #define DTR_PIN 5						// pin to output DTR
-  #define DSR_PIN 6						// pin to input DSR
-  #define SD_CS_PIN 4                   // sd card reader chip-select pin #
-  //#define SD_CD_PIN 7                   // sd card reader card-detect pin #
-  #define DISABLE_SD_CS 0               // disable CS on SD_CS_PIN pin
-  #define USE_SDIO 0                    // sd card reader communication method false = SPI (most boards), true = SDIO (Teensy 3.5/3.6)
-  #define ENABLE_SLEEP 1                // sleep() while idle for power saving
-  #define WAKE_PIN 0                    // CLIENT RX pin#, interrupt is attached to wake from sleep()
-  #define SLEEP_INHIBIT 5000            // Idle grace period before sleeping, 0 = disable wait (always sleep immediately), 300,000 = wait idle for 5 minutes before sleeping
-  #define DISK_ACTIVITY_LIGHT 1         // Enable led to show sd card activity
-  #define PINMODE_SD_LED_OUTPUT pinMode(13,OUTPUT);
-  #define SD_LED_ON digitalWrite(13,HIGH);
-  #define SD_LED_OFF digitalWrite(13,LOW);
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(13,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(13,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(13,LOW);
-
-// Arduino UNO platform
-#elif BOARD == UNO
-  #define CONSOLE             mySerial
-  #define CONSOLE_DECL        SoftwareSerial mySerial(7,8); // RX, TX
-  #define CLIENT              Serial
-  #define DTR_PIN             5
-  #define DSR_PIN             6
-  #define SD_CS_PIN           10
-  //#define SD_CD_PIN 7
-  #define DISABLE_SD_CS       0
-  #define USE_SDIO            0
-  #define ENABLE_SLEEP        0
-  #define WAKE_PIN            0
-  #define SLEEP_INHIBIT       5000
-  #define DISK_ACTIVITY_LIGHT 1
-  #define LED_ACT_PIN         9
-  #define LED_DEBUG_PIN       4
-  #define PINMODE_SD_LED_OUTPUT pinMode(LED_ACT_PIN,OUTPUT);
-  #define SD_LED_ON digitalWrite(LED_ACT_PIN,HIGH);
-  #define SD_LED_OFF digitalWrite(LED_ACT_PIN,LOW);
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_DEBUG_PIN,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(LED_DEBUG_PIN,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(LED_DEBUG_PIN,LOW);
-
-// Generic Arduino platform
-#elif BOARD == Generic
-  #define CONSOLE Serial
-  #define CLIENT Serial1
-  #define DTR_PIN 5
-  #define DSR_PIN 6
-  #define SD_CS_PIN 4
-  //#define SD_CD_PIN 7
-  #define DISABLE_SD_CS 0
-  #define USE_SDIO 0
-  #define ENABLE_SLEEP 1
-  #define WAKE_PIN 0
-  #define SLEEP_INHIBIT 5000
-  #define DISK_ACTIVITY_LIGHT 1
-  #define PINMODE_SD_LED_OUTPUT pinMode(13,OUTPUT);
-  #define SD_LED_ON digitalWrite(13,HIGH);
-  #define SD_LED_OFF digitalWrite(13,LOW);
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(13,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(13,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(13,LOW);
+  #define CONSOLE SERIAL_PORT_MONITOR      // where to send debug messages, if enabled. (Serial)
+  #define CLIENT SERIAL_PORT_HARDWARE_OPEN // what serial port is the TPDD client connected to (Serial1)
+  #define DTR_PIN 5                         // pin to output DTR, github.com/bkw777/MounT uses pin 5
+  #define DSR_PIN 6                        // pin to input DSR, github.com/bkw777/MounT uses pin6
+  #define SD_CS_PIN 4                      // sd card reader chip-select pin #, usually automatic
+  //#define SD_CD_PIN 7                    // sd card reader card-detect pin #, usually none
+  //#define DISABLE_CS 10               // Disable other SPI device on this pin, usully none, assume SD is only SPI device
+  //#define USE_SDIO                    // sd card reader is connected by SDIO instead of SPI (Teensy 3.5/3.6/4.1)
+  #define ENABLE_SLEEP                  // sleepNow() while idle for power saving
+  #define WAKE_PIN 0                    // CLIENT RX pin#, interrupt is attached to wake from sleepNow()
+  //#define SLEEP_DELAY 5000            // Delay in ms before sleeping
+  //#define USE_ALP                     // Use ArduinoLowPower library for sleepNow(), otherwise use avr/sleep.h
+  #define PINMODE_SD_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
+  #define SD_LED_ON digitalWrite(LED_BUILTIN,HIGH);
+  #define SD_LED_OFF digitalWrite(LED_BUILTIN,LOW);
+  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
+  #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
+  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
 
 // Teensy3.5, Teensy3.6
 // https://www.pjrc.com/store/teensy35.html
@@ -127,19 +110,19 @@
 //   ...
 //   if (!sd.exists("settings.txt")) { CPU_RESTART }
 //
-#elif BOARD == Teensy_35 || BOARD == Teensy_36
-  #define CONSOLE Serial
-  #define CLIENT Serial1
+#elif defined(BOARD_TEENSY35) || defined(BOARD_TEENSY36)
+  #define CONSOLE SERIAL_PORT_MONITOR
+  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
   #define DTR_PIN 5
   #define DSR_PIN 6
-  #define SD_CS_PIN -1
+  //#define SD_CS_PIN SS
   //#define SD_CD_PIN 7
-  #define DISABLE_SD_CS 0
-  #define USE_SDIO 1
-  #define ENABLE_SLEEP 1
+  //#define DISABLE_CS 10
+  #define USE_SDIO
+  #define ENABLE_SLEEP
   #define WAKE_PIN 0
-  #define SLEEP_INHIBIT 0       // Teensy can sleep instantly
-  #define DISK_ACTIVITY_LIGHT 1
+  //#define SLEEP_DELAY 5000
+  //#define USE_ALP
   // Main LED: PB5
   #define PINMODE_SD_LED_OUTPUT DDRB = DDRB |= 1UL << 5;
   #define SD_LED_ON PORTB |= _BV(5);
@@ -152,19 +135,19 @@
 // Adafruit Feather 32u4 Adalogger
 // https://learn.adafruit.com/adafruit-feather-32u4-adalogger
 //
-#elif BOARD == Adalogger_32u4
-  #define CONSOLE Serial
-  #define CLIENT Serial1
+#elif defined(BOARD_FEATHER32U4)
+  #define CONSOLE SERIAL_PORT_MONITOR
+  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
   #define DTR_PIN 5
   #define DSR_PIN 6
-  #define SD_CS_PIN 4
+  #define SD_CS_PIN 4 
   //#define SD_CD_PIN 7
-  #define DISABLE_SD_CS 0
-  #define USE_SDIO 0
-  #define ENABLE_SLEEP 1
+  //#define DISABLE_CS 10
+  //#define USE_SDIO
+  #define ENABLE_SLEEP
   #define WAKE_PIN 0
-  #define SLEEP_INHIBIT 5000          // Adalogger 32u4 needs a few seconds before sleeping
-  #define DISK_ACTIVITY_LIGHT 1
+  #define SLEEP_DELAY 5000          // Adalogger 32u4 needs a few seconds before sleeping
+  //#define USE_ALP
   // Green LED near card reader: PB4
   #define PINMODE_SD_LED_OUTPUT DDRB = DDRB |= 1UL << 4;
   #define SD_LED_ON PORTB |= _BV(4);
@@ -177,41 +160,100 @@
 // Adafruit Feather M0 Adalogger
 // https://learn.adafruit.com/adafruit-feather-m0-adalogger
 //
-#elif BOARD == Adalogger_M0
-  #define CONSOLE Serial
-  #define CLIENT Serial1
+#elif defined(BOARD_FEATHERM0)
+  #define CONSOLE SERIAL_PORT_MONITOR
+  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
   #define DTR_PIN 5
   #define DSR_PIN 6
   #define SD_CS_PIN 4
-  //#define SD_CD_PIN 7
-  #define DISABLE_SD_CS 0
-  #define USE_SDIO 0
-  #define ENABLE_SLEEP 1
+  //#define DISABLE_CS 10
+  //#define USE_SDIO
+  #define ENABLE_SLEEP
   #define WAKE_PIN 0
-  #define SLEEP_INHIBIT 5000
-  #define DISK_ACTIVITY_LIGHT 1
-  // Green LED near card reader: PA6
-  // SAMD must map pins differently than AVR  "'DDRA'was not declared in this scope"
-  //#define PINMODE_SD_LED_OUTPUT DDRA = DDRA |= 1UL << 6;
-  //#define SD_LED_ON PORTA |= _BV(6);
-  //#define SD_LED_OFF PORTA &= ~_BV(6);
+  #define SLEEP_DELAY 250
+  #define USE_ALP
+  // Green LED near card reader: PA6 / pin 8
   #define PINMODE_SD_LED_OUTPUT pinMode(8,OUTPUT);
   #define SD_LED_ON digitalWrite(8,HIGH);
   #define SD_LED_OFF digitalWrite(8,LOW);
   // Main LED: PA17
-  //#define PINMODE_DEBUG_LED_OUTPUT DDRA = DDRA |= 1UL << 17;
-  //#define DEBUG_LED_ON PORTA |= _BV(17);
-  //#define DEBUG_LED_OFF PORTA &= ~_BV(17);
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(13,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(13,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(13,LOW);
-  // only needed if you don't have the Adafruit SAMD board support installed
-  //#if defined(ARDUINO_SAMD_ZERO) && defined(SERIAL_PORT_USBVIRTUAL)
-  // // Required for Serial on Zero based boards
-  // #define Serial SERIAL_PORT_USBVIRTUAL
-  //#endif
+  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
+  #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
+  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
 
-#endif // BOARD
+#elif defined(BOARD_UNO)
+#ifndef HAVE_HWSERIAL1
+  #define CONSOLE                   mySerial
+  #include <SoftwareSerial.h>
+  #define CONSOLE_DECL              SoftwareSerial mySerial(7,8); // RX, TX;
+#else
+  #define CONSOLE                   SERIAL_PORT_HARDWARE_OPEN
+#endif
+  #define CLIENT                    SERIAL_PORT_MONITOR
+  #define DTR_PIN                   5
+  #define DSR_PIN                   6
+  #define SD_CS_PIN                 10
+  // User-defined platform details
+  //#define ENABLE_SLEEP
+  //#define WAKE_PIN 0
+  //#define SLEEP_DELAY 5000
+  //#define USE_ALP
+  #define LED_SD_ACT                9
+  #define PINMODE_SD_LED_OUTPUT     pinMode(LED_SD_ACT, OUTPUT);
+  #define SD_LED_ON                 digitalWrite(LED_SD_ACT,HIGH);
+  #define SD_LED_OFF                digitalWrite(LED_SD_ACT,LOW);
+  #define LED_DEBUG                 4
+  #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_DEBUG,OUTPUT);
+  #define DEBUG_LED_ON              digitalWrite(LED_DEBUG,HIGH);
+  #define DEBUG_LED_OFF             digitalWrite(LED_DEBUG,LOW);
+
+#elif defined(BOARD_MEGA)
+  #define CONSOLE                   SERIAL_PORT_HARDWARE_OPEN
+  #define CLIENT                    SERIAL_PORT_MONITOR
+  #define DTR_PIN                   5
+  #define DSR_PIN                   6
+  #define SD_CS_PIN                 53
+  // User-defined platform details
+  //#define ENABLE_SLEEP
+  //#define WAKE_PIN 0
+  //#define SLEEP_DELAY 5000
+  //#define USE_ALP
+  #define LED_SD_ACT                9
+  #define PINMODE_SD_LED_OUTPUT     pinMode(LED_SD_ACT, OUTPUT);
+  #define SD_LED_ON                 digitalWrite(LED_SD_ACT,HIGH);
+  #define SD_LED_OFF                digitalWrite(LED_SD_ACT,LOW);
+  #define LED_DEBUG                 4
+  #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_DEBUG,OUTPUT);
+  #define DEBUG_LED_ON              digitalWrite(LED_DEBUG,HIGH);
+  #define DEBUG_LED_OFF             digitalWrite(LED_DEBUG,LOW);
+
+// example to add a new board
+//#elif defined(BOARD_UNO)
+//  // User-defined platform details
+//  #define CONSOLE SERIAL_PORT_MONITOR
+//  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
+//  #define DTR_PIN 5
+//  #define DSR_PIN 6
+//  #define SD_CS_PIN 4
+//  //#define SD_CD_PIN 7
+//  //#define DISABLE_CS 10
+//  //#define USE_SDIO
+//  #define ENABLE_SLEEP
+//  #define WAKE_PIN 0
+//  //#define SLEEP_DELAY 5000
+//  //#define USE_ALP
+//  #define PINMODE_SD_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
+//  #define SD_LED_ON digitalWrite(LED_BUILTIN,HIGH);
+//  #define SD_LED_OFF digitalWrite(LED_BUILTIN,LOW);
+//  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
+//  #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
+//  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
+
+#endif // BOARD_*
+
+#ifndef CONSOLE_DECL
+  #define CONSOLE_DECL
+#endif
 
 //
 // end of config section
@@ -221,27 +263,36 @@
 #include <BlockDriver.h>
 #include <FreeStack.h>
 #include <MinimumSerial.h>
+#if !defined(USE_SDIO)
+#include <SPI.h>
+#endif
 #include <SdFat.h>
+#include <sdios.h>
 #include <SdFatConfig.h>
 #include <SysCall.h>
-#include <sdios.h>
-#if DEBUG && defined CONSOLE && defined CONSOLE_DECL
-#include <SoftwareSerial.h>
-#endif
 
-#if USE_SDIO
+CONSOLE_DECL
+
+#if defined(USE_SDIO)
 SdFatSdioEX SD;
 #else
 SdFat SD;
 #endif
 
-#if !DISK_ACTIVITY_LIGHT
+#if !defined(DEBUG)
+#define DEBUG 0
+#endif
+
+#if !defined(PINMODE_SD_LED_OUTPUT) || !defined(SD_LED_ON) || !defined(SD_LED_OFF)
   #define PINMODE_SD_LED_OUTPUT
   #define SD_LED_ON
   #define SD_LED_OFF
+  #define SD_LED 0
+#else
+  #define SD_LED 1
 #endif
 
-#if !DEBUG_ACTIVITY_LIGHT
+#if !defined(PINMODE_DEBUG_LED_OUTPUT)  || !defined(DEBUG_LED_ON) || !defined(DEBUG_LED_OFF)
  #define PINMODE_DEBUG_LED_OUTPUT
  #define DEBUG_LED_ON
  #define DEBUG_LED_OFF
@@ -258,6 +309,18 @@ SdFat SD;
  #define DEBUG_PRINTL(x)
  #define DEBUG_PRINTIL(x,y)
 #endif
+
+#if !defined(SLEEP_DELAY)
+#define SLEEP_DELAY 0
+#endif
+
+#if defined(ENABLE_SLEEP)
+ #if defined(USE_ALP)
+  #include <ArduinoLowPower.h>
+ #else
+  #include <avr/sleep.h>
+ #endif // USE_ALP
+#endif // ENABLE_SLEEP
 
 #define DATA_BUFFER_SZ 0x0100  // 256 bytes, 2 full tpdd packets? 0xFF did not work.
 #define FILE_BUFFER_SZ 0x80    // 128 bytes at at time to/from files
@@ -288,11 +351,8 @@ byte directoryBlock = 0x00; //Current directory block for directory listing
 char directory[DIRECTORY_SZ] = "/";
 byte directoryDepth = 0x00;
 char tempDirectory[DIRECTORY_SZ] = "/";
-char dmeLabel[0x07] = "";  // 6 chars
+char dmeLabel[0x07] = "";  // 6 chars + NULL
 
-#if DEBUG && defined CONSOLE && defined CONSOLE_DECL
-CONSOLE_DECL
-#endif
 
 /*
  *
@@ -305,12 +365,9 @@ void printDirectory(File dir, byte numTabs) {
   char fileName[FILENAME_SZ] = "";
 
   SD_LED_ON
-  while (true) {
-    entry = dir.openNextFile();
-    if (!entry) {
-      break;
-    }
+  while (entry = dir.openNextFile(O_RDONLY)) {
     if(!entry.isHidden()) {
+
       entry.getName(fileName,FILENAME_SZ);
       for (byte i = 0x00; i < numTabs; i++) DEBUG_PRINT(F("\t"));
       DEBUG_PRINT(fileName);
@@ -329,74 +386,67 @@ void printDirectory(File dir, byte numTabs) {
 }
 #endif // DEBUG
 
-#if ENABLE_SLEEP
-#if defined(ARDUINO_SAMD_ZERO)
- #include <ArduinoLowPower.h>
-#else
- #include <avr/sleep.h>
-#endif // SAMD
-
-#if defined(ARDUINO_SAMD_ZERO)
-#else
+#if defined(ENABLE_SLEEP)
+ #if !defined(USE_ALP)
   const byte wakeInterrupt = digitalPinToInterrupt(WAKE_PIN);
-#endif // SAMD
+ #endif // !USE_ALP
 
-#if SLEEP_INHIBIT
+ #if defined(SLEEP_DELAY)
   unsigned long now = millis();
   unsigned long idleSince = now;
-#endif // SLEEP_INHIBIT
+ #endif // SLEEP_DELAY
 
 void wakeNow () {
 }
 
 void sleepNow() {
-#if SLEEP_INHIBIT
+ #if defined(SLEEP_DELAY)
   now = millis();
-  if ((now-idleSince)<SLEEP_INHIBIT) return;
+  if ((now-idleSince)<SLEEP_DELAY) return;
   idleSince = now;
-#endif // SLEEP_INHIBIT
-#if defined(ARDUINO_SAMD_ZERO)
+ #endif // SLEEP_DELAY
+ #if defined(USE_ALP)
   LowPower.attachInterruptWakeup(WAKE_PIN, wakeNow, CHANGE);
   LowPower.sleep();
-#else
-// prevent the built-in usb-serial device from powering-off if we're using it
- #if DEBUG && defined(CONSOLE)
-  set_sleep_mode(SLEEP_MODE_IDLE);
  #else
+  // if the debug console is enabled, then don't sleep deep enough to power off the usb port
+  #if DEBUG
+  set_sleep_mode(SLEEP_MODE_IDLE);
+  #else
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
- #endif // DEBUG && CONSOLE
- #if DEBUG_SLEEP
+  #endif // DEBUG
   DEBUG_LED_ON
- #endif
-
   attachInterrupt(wakeInterrupt,wakeNow,CHANGE);
   sleep_mode();
   detachInterrupt(wakeInterrupt);
-#endif
-#if DEBUG_SLEEP
+ #endif // USE_ALP
   DEBUG_LED_OFF
-#endif
 }
 #endif // ENABLE_SLEEP
 
 void initCard () {
-  while(true){
+  while(true) {
     DEBUG_PRINT(F("Opening SD card..."));
     SD_LED_ON
-#if USE_SDIO
-#if DEBUG > 2
+#if defined(USE_SDIO)
+ #if DEBUG > 2
     DEBUG_PRINT(F("(SDIO)"));
-#endif
+ #endif
     if (SD.begin()) {
-#else  // USE_SDIO
-#if DEBUG > 2
+#else
+ #if DEBUG > 2
     DEBUG_PRINT(F("(SPI)"));
-#endif
-    //if (SD.begin(SD_CS_PIN,SD_SCK_MHZ(50))) {
+ #endif
+ #if defined(SD_CS_PIN) && defined(SD_SPI_MHZ)
+    if (SD.begin(SD_CS_PIN,SD_SCK_MHZ(SD_SPI_MHZ))) {
+ #elif defined(SD_CS_PIN)
     if (SD.begin(SD_CS_PIN)) {
+ #else
+    if (SD.begin()) {
+ #endif
 #endif  // USE_SDIO
       DEBUG_PRINTL(F("OK."));
-#if DISK_ACTIVITY_LIGHT
+#if SD_LED
       SD_LED_OFF
       delay (0x60);
       SD_LED_ON
@@ -409,7 +459,7 @@ void initCard () {
       break;
     } else {
       DEBUG_PRINTL(F("No SD card."));
-#if DISK_ACTIVITY_LIGHT
+#if SD_LED
       SD_LED_OFF
       delay(1000);
 #endif
@@ -419,6 +469,7 @@ void initCard () {
   SD.chvol();
 
   // TODO - get the FAT volume label and use it in place of rootLabel
+  // ...non-trivial
 
   // Always do this open() & close(), even if we aren't doing the printDirectory()
   // It's needed to get the SdFat library to put the sd card to sleep.
@@ -434,6 +485,7 @@ void initCard () {
 }
 
 
+#if defined(LOADER_FILE)
 /*
  * sendLoader() and restart()
  *
@@ -451,13 +503,24 @@ void(* restart) (void) = 0;
 /* TPDD2-style bootstrap */
 void sendLoader() {
   byte b = 0x00;
+#if DEBUG
+  int c = 0;
+#endif // DEBUG
   File f = SD.open(LOADER_FILE);
+
+  DEBUG_PRINTL(F("sendLoader()"));  
   if (f) {
     SD_LED_ON
-    DEBUG_PRINTL(F("Sending " LOADER_FILE " ..."));
+    DEBUG_PRINT(F("Sending " LOADER_FILE " "));
       while (f.available()) {
         b = f.read();
         CLIENT.write(b);
+#if DEBUG
+        if(++c>99) {
+         DEBUG_PRINT(F("."));
+         c = 0;
+        }
+#endif // DEBUG
         delay(0x05);
       }
     f.close();
@@ -465,11 +528,13 @@ void sendLoader() {
     CLIENT.write(0x1A);
     CLIENT.flush();
     CLIENT.end();
+    DEBUG_PRINTL(F("DONE"));
   } else {
     DEBUG_PRINT(F("Could not find " LOADER_FILE " ..."));
   }
   restart(); // go back to normal TPDD emulation mode
 }
+#endif // LOADER_FILE
 
 // Append a string to directory[]
 void directoryAppend(char* c){
@@ -755,18 +820,18 @@ void ref_openNext(){
   root.rewindDirectory(); //Pull back to the begining of the directory
   for(byte i=0x00; i<directoryBlock-0x01; i++) root.openNextFile();  //skip to the current entry offset by the index
 
-  entry = root.openNextFile();  //Open the entry
-
-  if(entry){  //If the entry exists it is returned
-    if((entry.isDirectory() && !DME) || entry.isHidden()){  //If it's a directory and we're not in DME mode
+  //Open the entry
+  if(entry = root.openNextFile()) {  //If the entry exists it is returned
+    if(entry.isHidden() || (entry.isDirectory() && !DME)) {
+      //If it's a directory and we're not in DME mode or file/dir is hidden
       entry.close();  //the entry is skipped over
       ref_openNext(); //and this function is called again
+    } else {
+      return_reference(); //Send the reference info to the TPDD port
+      entry.close();  //Close the entry
     }
-
-    return_reference(); //Send the reference info to the TPDD port
-    entry.close();  //Close the entry
     SD_LED_OFF
-  }else{
+  } else {
     SD_LED_OFF
     return_blank_reference();
   }
@@ -972,68 +1037,107 @@ void setup() {
   //pinMode(WAKE_PIN, INPUT_PULLUP);  // typical, but don't do on RX
   SD_LED_OFF
   DEBUG_LED_OFF
-  digitalWrite(13,LOW);  // turn main led off, regardless of SD_LED or DEBUG_LED settings
+  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
 
   // DSR/DTR
+#if defined(DTR_PIN)
   pinMode(DTR_PIN, OUTPUT);
   digitalWrite(DTR_PIN,HIGH);  // tell client we're not ready
+#endif // DTR_PIN
+#if defined(DSR_PIN)
   pinMode(DSR_PIN, INPUT_PULLUP);
+#endif // DSR_PIN
 
 // if debug console enabled, blink led and wait for console to be attached before proceeding
 #if DEBUG && defined(CONSOLE)
   CONSOLE.begin(115200);
     while(!CONSOLE){
       DEBUG_LED_ON
-      delay(0x60);
+      delay(0x20);
       DEBUG_LED_OFF
-      delay(0x60);
+      delay(0x200);
     }
   CONSOLE.flush();
 #endif
 
+  DEBUG_PRINTL(F("setup()"));
+
   CLIENT.begin(19200);
   CLIENT.flush();
 
-  DEBUG_PRINTL(F("\r\n-----------[ PDDuino setup() ]------------"));
+  DEBUG_PRINTL(F("\r\n-----------[ " SKETCH_NAME " " SKETCH_VERSION " ]------------"));
+  DEBUG_PRINTL(F("BOARD_NAME: " BOARD_NAME));
+
+  DEBUG_PRINT(F("DSR_PIN: "));
+#if defined(DSR_PIN)
+  DEBUG_PRINT(DSR_PIN);
+#endif // DSR_PIN
+  DEBUG_PRINTL("");
+
+  DEBUG_PRINT("DTR_PIN: ");
+#if defined(DTR_PIN)
+  DEBUG_PRINT(DTR_PIN);
+#endif // DTR_PIN
+  DEBUG_PRINTL("");
+
+  DEBUG_PRINT("LOADER_FILE: ");
+#if defined(LOADER_FILE)
+  DEBUG_PRINT(LOADER_FILE);
+#endif // LOADER_FILE
+  DEBUG_PRINTL("");
+
+  DEBUG_PRINT(F("sendLoader(): "));
+#if defined(DSR_PIN) && defined(LOADER_FILE)
+  DEBUG_PRINTL(F("enabled"));
+#else
+  DEBUG_PRINTL(F("disabled"));
+#endif // DSR_PIN && LOADER_FILE
 
   for(byte i=0x00;i<FILE_BUFFER_SZ;++i) dataBuffer[i] = 0x00;
 
-#if DEBUG > 2 && USE_SDIO
-DEBUG_PRINTL(F("Using SDIO"));
-#endif
-
-#if SD_CS_PIN >= 0 && !USE_SDIO
-  #if DISABLE_SD_CS
-    #if DEBUG > 2
-    DEBUG_PRINT(F("Disabling SPI device on pin "));
-    DEBUG_PRINTL(SD_CS_PIN);
-    #endif
-    pinMode(SD_CS_PIN, OUTPUT);
-    digitalWrite(SD_CS_PIN, HIGH);
-  #else
-    #if DEBUG > 2
-    DEBUG_PRINTL(F("Assuming the SD is the only SPI device."));  
-    #endif
-  #endif
+#if defined(USE_SDIO)
+ #if DEBUG > 2
+ DEBUG_PRINTL(F("Using SDIO"));
+ #endif // DEBUG
+#else
+ #if defined(DISABLE_CS)
   #if DEBUG > 2
+   DEBUG_PRINT(F("Disabling SPI device on pin: "));
+   DEBUG_PRINTL(DISABLE_CS);
+  #endif // DEBUG
+   pinMode(DISABLE_CS, OUTPUT);
+   digitalWrite(DISABLE_CS, HIGH);
+ #else
+   #if DEBUG > 2
+   DEBUG_PRINTL(F("Assuming the SD is the only SPI device."));  
+   #endif // DEBUG
+ #endif // DISABLE_CS
+ #if DEBUG > 2
   DEBUG_PRINT(F("Using SD chip select pin: "));
-  DEBUG_PRINTL(SD_CS_PIN);
-  #endif
+  #if defined(SD_CS_PIN)
+  DEBUG_PRINT(SD_CS_PIN);
+  #endif  // SD_CS_PIN
+  DEBUG_PRINTL("");
+ #endif  // DEBUG
 #endif  // !USE_SDIO
 
   initCard();
 
+#if defined(DTR_PIN)
   digitalWrite(DTR_PIN,LOW); // tell client we're ready
+#endif // DTR_PIN
 
   // TPDD2-style automatic bootstrap.
   // If client is open already at power-on,
   // then send LOADER.BA instead of going into main loop()
+#if defined(DSR_PIN) && defined(LOADER_FILE)
   if(!digitalRead(DSR_PIN)) {
-    #if DEBUG > 2
-    DEBUG_PRINT(F("Sending Loader"));
-    #endif
+    DEBUG_PRINTL(F("Client is asserting DSR. Doing sendLoader()."));
     sendLoader();
+  } else {
+    DEBUG_PRINTL(F("Client is not asserting DSR. Doing loop()."));
   }
+#endif // DSR_PIN && LOADER_FILE
 
 }
 
@@ -1052,18 +1156,18 @@ void loop() {
   DEBUG_PRINTL(F("loop(): start"));
   state = 0x00; // 0 = waiting for command, 1 = waiting for full command, 2 = have full command
 
-//#if ENABLE_SLEEP
+//#if defined(ENABLE_SLEEP)
 //  sleepNow();
 //#endif // ENABLE_SLEEP
   while(state<0x02){ // While waiting for a command...
-#if ENABLE_SLEEP
+#if defined(ENABLE_SLEEP)
     sleepNow();
 #endif // ENABLE_SLEEP
     while (CLIENT.available() > 0x00){ // While there's data to read from the TPDD port...
-#if ENABLE_SLEEP
-    #if SLEEP_INHIBIT
+#if defined(ENABLE_SLEEP)
+ #if defined(SLEEP_DELAY)
       idleSince = millis();
-    #endif
+ #endif // SLEEP_DELAY
 #endif // ENABLE_SLEEP
       dataBuffer[head++]=(byte)CLIENT.read();  //...pull the character from the TPDD port and put it into the command buffer, increment the head index...
       if(tail==head)tail++; //...if the tail index equals the head index (a wrap-around has occoured! data will be lost!)
@@ -1143,4 +1247,3 @@ void loop() {
   DEBUG_PRINTIL(tail,HEX);
 #endif
 }
-

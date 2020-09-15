@@ -67,10 +67,12 @@ You would only need these for bread-boarding or building in a box attached by a 
 
 ### Software
 * Arduino IDE<br>
-* SPI library<br>
-* Bill Greiman's SdFat library<br>
 * For Teensy: Teensyduino<br>
-* For Adafruit Feather M0: Arduino SAMD boards support, Adafruit SAMD boards support
+* For Adafruit Feather 32u4: Adafruit AVR Boards support<br>
+* For Adafruit Feather M0: Adafruit SAMD Boards support
+* SPI library<br>
+* SdFat library<br>
+* Arduino Low Power library<br>
 
 ## Assembly
 ### Hardware
