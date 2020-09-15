@@ -625,6 +625,9 @@ void setLabel(char* s) {
 void tpddWrite(char c){  //Outputs char c to TPDD port and adds to the checksum
   checksum += c;
   CLIENT.write(c);
+  DEBUG_PRINT(F("Sent:"));
+  DEBUG_PRINTIL((byte)c,HEX);
+
 }
 
 void tpddWriteString(char* c){  //Outputs a null-terminated char array c to the TPDD port
@@ -632,6 +635,8 @@ void tpddWriteString(char* c){  //Outputs a null-terminated char array c to the 
   while(c[i]!=0x00){
     checksum += c[i];
     CLIENT.write(c[i]);
+    DEBUG_PRINT(F("Sent:"));
+    DEBUG_PRINTIL((byte)c,HEX);
     i++;
   }
 }
@@ -660,7 +665,57 @@ void return_normal(byte errorCode){ //Sends a normal return to the TPDD port wit
   tpddSendChecksum(); //Checksum
 }
 
+void returnReference(char *name, bool isDir, uint16_t size ) {
+  uint8_t i, j;
+
+  DEBUG_PRINTL(F("returnReference()"));
+
+  tpddWrite(0x11);    //Return type (reference)
+  tpddWrite(0x1C);    //Data size (1C)
+  if(name == NULL) {
+    for(i = 0; i < FILENAME_SZ; i++)
+      tpddWrite(0x00);  //Write the reference file name to the TPDD port
+  } else {
+    if(isDir && DME) { // handle dirname.
+      for(i = 0; (i < 6) && (name[i] != 0); i++)
+        tpddWrite(name[i]);
+      for(;i < 6; i++)
+        tpddWrite(' '); // pad out the dir
+      tpddWrite('.');  //Tack the expected ".<>" to the end of the name
+      tpddWrite('<');
+      tpddWrite('>');
+      j = 9;
+    } else {
+      for(i = 0; (i < 6) && (name[i] != '.'); i++) {
+        tpddWrite(name[i]);
+      }
+      for(j = i; j < 6; j++) {
+        tpddWrite(' ');
+      }
+      for(; j < FILENAME_SZ && (name[i] != 0); j++) {
+        tpddWrite(name[i++]);  // send the file extension
+      }
+    }
+    for(; j < FILENAME_SZ; j++) {
+      tpddWrite(0);  // pad out
+    }
+  }
+  tpddWrite(0);  //Attribute, unused
+  tpddWrite((uint8_t)(size >> 8));  //File size most significant byte
+  tpddWrite((uint8_t)(size & 0xFF)); //File size least significant byte
+  tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
+  tpddSendChecksum(); //Checksum
+
+}
+
+#define JIM_NEW_RETURN_REF
+
 void return_reference(){  //Sends a reference return to the TPDD port
+#ifdef JIM_NEW_RETURN_REF
+  DEBUG_PRINTL(F("return_reference()"));
+  entry.getName(tempRefFileName,FILENAME_SZ);  //Save the current file entry's name to the reference file name buffer
+  returnReference(tempRefFileName, entry.isDirectory(), entry.fileSize());
+#else
   byte term = 0x06;
   bool terminated = false;
   DEBUG_PRINTL(F("return_reference()"));
@@ -683,8 +738,6 @@ void return_reference(){  //Sends a reference return to the TPDD port
     term = 0x06; //Reset the termination index to prepare for the next check
   }
 
-
-
   for(byte i=0x00; i<0x06; i++){ //      !!!Pads the name of the file out to 6 characters using space characters
     if(term == 0x06){  //Perform these checks if term hasn't changed
       if(tempRefFileName[i]=='.'){
@@ -705,6 +758,7 @@ void return_reference(){  //Sends a reference return to the TPDD port
   tpddWrite((byte)(entry.fileSize()&0xFF)); //File size least significant byte
   tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
   tpddSendChecksum(); //Checksum
+#endif
 #if DEBUG > 1
   DEBUG_PRINTL("R:Ref");
 #endif
@@ -712,6 +766,10 @@ void return_reference(){  //Sends a reference return to the TPDD port
 
 void return_blank_reference(){  //Sends a blank reference return to the TPDD port
   DEBUG_PRINTL(F("return_blank_reference()"));
+#ifdef JIM_NEW_RETURN_REF
+  entry.getName(tempRefFileName,FILENAME_SZ);  //Save the current file entry's name to the reference file name buffer
+  returnReference(NULL, false, 0);
+#else
   tpddWrite(0x11);    //Return type (reference)
   tpddWrite(0x1C);    //Data size (1C)
 
@@ -722,6 +780,7 @@ void return_blank_reference(){  //Sends a blank reference return to the TPDD por
   tpddWrite(0x00);    //File size least significant byte
   tpddWrite(0x80);    //Free sectors, SD card has more than we'll ever care about
   tpddSendChecksum(); //Checksum
+#endif
 #if DEBUG > 1
   DEBUG_PRINTL("R:BRef");
 #endif
@@ -729,6 +788,9 @@ void return_blank_reference(){  //Sends a blank reference return to the TPDD por
 
 void return_parent_reference(){
   DEBUG_PRINTL(F("return_parent_reference()"));
+#ifdef JIM_NEW_RETURN_REF
+  returnReference("PARENT", true, 0);
+#else
   tpddWrite(0x11);    // return type
   tpddWrite(0x1C);    // data size
 
@@ -740,6 +802,7 @@ void return_parent_reference(){
   tpddWrite(0x00);    //File size least significant byte
   tpddWrite(0x80);    //Free sectors, SD card has more than we'll ever care about
   tpddSendChecksum(); //Checksum
+#endif
 }
 
 /*
@@ -1162,7 +1225,7 @@ void setup() {
  */
 
 void loop() {
-  byte rType = 0x00; // Current request type (command type)
+  command_t rType = CMD_REFERENCE; // Current request type (command type)
   byte rLength = 0x00; // Current request length (command length)
   byte diff = 0x00;  // Difference between the head and tail buffer indexes
 
