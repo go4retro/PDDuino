@@ -364,8 +364,41 @@ typedef enum command_s {
   CMD_STATUS,
   CMD_DMEREQ,
   CMD_CONDITION = 0x0c,
-  CMD_RENAME
+  CMD_RENAME,
+  RET_READ = 0x10,
+  RET_DIRECTORY,
+  RET_NORMAL,
+  RET_CONDITION = 0x15
 } command_t;
+
+typedef enum error_s {
+  ERR_SUCCESS,
+  ERR_NOFILE = 0x10,
+  ERR_EXISTS,
+  ERR_NO_NAME = 0x30,
+  ERR_DIR_SEARCH,
+  ERR_BANK = 0x35,
+  ERR_PARM,
+  ERR_FMT_MISMATCH,
+  ERR_EOF = 0x3f,
+  ERR_NO_START = 0x40,
+  ERR_ID_CRC,
+  ERR_SEC_LEN,
+  ERR_FMT_VERIFY = 0x44,
+  ERR_FMT_INTRPT = 0x46,
+  ERR_ERASE_OFFSET,
+  ERR_DATA_CRC = 0x49,
+  ERR_SEC_NUM,
+  ERR_READ_TIMEOUT,
+  ERR_SEC_NUM2 = 0x4d,
+  ERR_WRITE_PROTECT = 0x50,
+  ERR_DISK_NOINIT = 0x5e,
+  ERR_DIR_FULL = 0x60,
+  ERR_DISK_FULL,
+  ERR_FILE_LEN = 0x6e,
+  ERR_NO_DISK = 0x70,
+  ERR_DISK_CHG
+} error_t;
 
 /*
  *
@@ -659,7 +692,7 @@ void return_normal(byte errorCode){ //Sends a normal return to the TPDD port wit
   DEBUG_PRINT("R:Norm ");
   DEBUG_PRINTIL(errorCode, HEX);
 #endif
-  tpddWrite(0x12);  //Return type (normal)
+  tpddWrite(RET_NORMAL);  //Return type (normal)
   tpddWrite(0x01);  //Data size (1)
   tpddWrite(errorCode); //Error code
   tpddSendChecksum(); //Checksum
@@ -670,7 +703,7 @@ void returnReference(char *name, bool isDir, uint16_t size ) {
 
   DEBUG_PRINTL(F("returnReference()"));
 
-  tpddWrite(0x11);    //Return type (reference)
+  tpddWrite(RET_DIRECTORY);    //Return type (reference)
   tpddWrite(0x1C);    //Data size (1C)
   if(name == NULL) {
     for(i = 0; i < FILENAME_SZ; i++)
@@ -720,7 +753,7 @@ void return_reference(){  //Sends a reference return to the TPDD port
   bool terminated = false;
   DEBUG_PRINTL(F("return_reference()"));
 
-  tpddWrite(0x11);  //Return type (reference)
+  tpddWrite(RET_DIRECTORY);  //Return type (reference)
   tpddWrite(0x1C);  //Data size (1C)
 
   for(byte i=0x00;i<FILENAME_SZ;++i) tempRefFileName[i] = 0x00;
@@ -770,7 +803,7 @@ void return_blank_reference(){  //Sends a blank reference return to the TPDD por
   entry.getName(tempRefFileName,FILENAME_SZ);  //Save the current file entry's name to the reference file name buffer
   returnReference(NULL, false, 0);
 #else
-  tpddWrite(0x11);    //Return type (reference)
+  tpddWrite(RET_DIRECTORY);    //Return type (reference)
   tpddWrite(0x1C);    //Data size (1C)
 
   for(byte i=0x00; i<FILENAME_SZ; i++) tpddWrite(0x00);  //Write the reference file name to the TPDD port
@@ -873,7 +906,7 @@ void command_reference(){ //Reference command handler
     root = SD.open(directory);
     ref_openNext();
   }else{  //Parameter is invalid
-    return_normal(0x36);  //Send a normal return to the TPDD port with a parameter error
+    return_normal(ERR_PARM);  //Send a normal return to the TPDD port with a parameter error
   }
   SD_LED_OFF
 }
@@ -948,10 +981,10 @@ void command_open(){  //Opens an entry for reading, writing, or appending
 
   if(SD.exists(directory)){ //If the file actually exists...
     SD_LED_OFF
-    return_normal(0x00);  //...send a normal return with no error.
+    return_normal(ERR_SUCCESS);  //...send a normal return with no error.
   }else{  //If the file doesn't exist...
     SD_LED_OFF
-    return_normal(0x10);  //...send a normal return with a "file does not exist" error.
+    return_normal(ERR_NOFILE);  //...send a normal return with a "file does not exist" error.
   }
 }
 
@@ -959,7 +992,7 @@ void command_close(){ //Closes the currently open entry
   DEBUG_PRINTL(F("command_close()"));
   entry.close();  //Close the entry
   SD_LED_OFF
-  return_normal(0x00);  //Normal return with no error
+  return_normal(ERR_SUCCESS);  //Normal return with no error
 }
 
 void command_read(){  //Read a block of data from the currently open entry
@@ -972,12 +1005,12 @@ void command_read(){  //Read a block of data from the currently open entry
   DEBUG_PRINTIL(entry.available(),HEX);
 #endif
   if(bytesRead > 0x00){  //Send the read return if there is data to be read
-    tpddWrite(0x10);  //Return type
+    tpddWrite(RET_READ);  //Return type
     tpddWrite(bytesRead); //Data length
     for(byte i=0x00; i<bytesRead; i++) tpddWrite(fileBuffer[i]);
     tpddSendChecksum();
   }else{
-    return_normal(0x3F);  //send a normal return with an end-of-file error if there is no data left to read
+    return_normal(ERR_EOF);  //send a normal return with an end-of-file error if there is no data left to read
   }
 }
 
@@ -988,7 +1021,7 @@ void command_write(){ //Write a block of data from the command to the currently 
   SD_LED_ON
   for(byte i=0x00; i<commandDataLength; i++) entry.write(dataBuffer[(byte)(tail+0x04+i)]);
   SD_LED_OFF
-  return_normal(0x00);  //Send a normal return to the TPDD port with no error
+  return_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with no error
 }
 
 void command_delete(){  //Delete the currently open entry
@@ -1007,22 +1040,22 @@ void command_delete(){  //Delete the currently open entry
   }
   SD_LED_OFF
   upDirectory();
-  return_normal(0x00);  //Send a normal return with no error
+  return_normal(ERR_SUCCESS);  //Send a normal return with no error
 }
 
 void command_format(){  //Not implemented
   DEBUG_PRINTL(F("command_format()"));
-  return_normal(0x00);
+  return_normal(ERR_SUCCESS);
 }
 
 void command_status(){  //Drive status
   DEBUG_PRINTL(F("command_status()"));
-  return_normal(0x00);
+  return_normal(ERR_SUCCESS);
 }
 
 void command_condition(){ //Not implemented
   DEBUG_PRINTL(F("command_condition()"));
-  return_normal(0x00);
+  return_normal(ERR_SUCCESS);
 }
 
 void command_rename(){  //Renames the currently open entry
@@ -1086,7 +1119,7 @@ void command_DMEReq() {  //Send the dmeLabel
 
   if(DME){  // prepend "/" to the root dir label just because my janky-ass setLabel() assumes it
     if (directoryDepth>0x00) setLabel(directory); else setLabel("/SD:   ");
-    tpddWrite(0x12);
+    tpddWrite(RET_NORMAL);
     tpddWrite(0x0B);
     tpddWrite(0x20);
     for (byte i=0x00 ; i<0x06 ; i++) tpddWrite(dmeLabel[i]);
