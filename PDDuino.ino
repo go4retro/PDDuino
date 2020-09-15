@@ -353,6 +353,19 @@ byte directoryDepth = 0x00;
 char tempDirectory[DIRECTORY_SZ] = "/";
 char dmeLabel[0x07] = "";  // 6 chars + NULL
 
+typedef enum command_s {
+  CMD_REFERENCE = 0,
+  CMD_OPEN,
+  CMD_CLOSE,
+  CMD_READ,
+  CMD_WRITE,
+  CMD_DELETE,
+  CMD_FORMAT,
+  CMD_STATUS,
+  CMD_DMEREQ,
+  CMD_CONDITION = 0x0c,
+  CMD_RENAME
+} command_t;
 
 /*
  *
@@ -1220,17 +1233,17 @@ void loop() {
 #endif
 
   switch(rType){  // Select the command handler routine to jump to based on the command type
-    case 0x00: command_reference(); break;
-    case 0x01: command_open(); break;
-    case 0x02: command_close(); break;
-    case 0x03: command_read(); break;
-    case 0x04: command_write(); break;
-    case 0x05: command_delete(); break;
-    case 0x06: command_format(); break;
-    case 0x07: command_status(); break;
-    case 0x08: command_DMEReq(); break; // DME Command
-    case 0x0C: command_condition(); break;
-    case 0x0D: command_rename(); break;
+    case CMD_REFERENCE: command_reference(); break;
+    case CMD_OPEN:      command_open(); break;
+    case CMD_CLOSE:     command_close(); break;
+    case CMD_READ:      command_read(); break;
+    case CMD_WRITE:     command_write(); break;
+    case CMD_DELETE:    command_delete(); break;
+    case CMD_FORMAT:    command_format(); break;
+    case CMD_STATUS:    command_status(); break;
+    case CMD_DMEREQ:    command_DMEReq(); break; // DME Command
+    case CMD_CONDITION: command_condition(); break;
+    case CMD_RENAME: command_rename(); break;
     default: return_normal(0x36); break;  // Send a normal return with a parameter error if the command is not implemented
   }
 
