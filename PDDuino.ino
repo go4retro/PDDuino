@@ -72,25 +72,27 @@
 
 // Arduino UNO platform
 #elif BOARD == UNO
-  #define CONSOLE mySerial
-  #define CONSOLE_DECL SoftwareSerial mySerial(7,8); // RX, TX
-  #define CLIENT Serial
-  #define DTR_PIN 5
-  #define DSR_PIN 6
-  #define SD_CS_PIN 10
+  #define CONSOLE             mySerial
+  #define CONSOLE_DECL        SoftwareSerial mySerial(7,8); // RX, TX
+  #define CLIENT              Serial
+  #define DTR_PIN             5
+  #define DSR_PIN             6
+  #define SD_CS_PIN           10
   //#define SD_CD_PIN 7
-  #define DISABLE_SD_CS 0
-  #define USE_SDIO 0
-  #define ENABLE_SLEEP 0
-  #define WAKE_PIN 0
-  #define SLEEP_INHIBIT 5000
+  #define DISABLE_SD_CS       0
+  #define USE_SDIO            0
+  #define ENABLE_SLEEP        0
+  #define WAKE_PIN            0
+  #define SLEEP_INHIBIT       5000
   #define DISK_ACTIVITY_LIGHT 1
-  #define PINMODE_SD_LED_OUTPUT pinMode(13,OUTPUT);
-  #define SD_LED_ON digitalWrite(13,HIGH);
-  #define SD_LED_OFF digitalWrite(13,LOW);
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(13,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(13,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(13,LOW);
+  #define LED_ACT_PIN         9
+  #define LED_DEBUG_PIN       4
+  #define PINMODE_SD_LED_OUTPUT pinMode(LED_ACT_PIN,OUTPUT);
+  #define SD_LED_ON digitalWrite(LED_ACT_PIN,HIGH);
+  #define SD_LED_OFF digitalWrite(LED_ACT_PIN,LOW);
+  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_DEBUG_PIN,OUTPUT);
+  #define DEBUG_LED_ON digitalWrite(LED_DEBUG_PIN,HIGH);
+  #define DEBUG_LED_OFF digitalWrite(LED_DEBUG_PIN,LOW);
 
 // Generic Arduino platform
 #elif BOARD == Generic
@@ -305,8 +307,9 @@ void printDirectory(File dir, byte numTabs) {
   SD_LED_ON
   while (true) {
     entry = dir.openNextFile();
-    if (!entry)
+    if (!entry) {
       break;
+    }
     if(!entry.isHidden()) {
       entry.getName(fileName,FILENAME_SZ);
       for (byte i = 0x00; i < numTabs; i++) DEBUG_PRINT(F("\t"));
