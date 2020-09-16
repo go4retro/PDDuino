@@ -359,7 +359,7 @@ byte directoryDepth = 0x00;
 char tempDirectory[DIRECTORY_SZ] = "/";
 char dmeLabel[0x07] = "";  // 6 chars + NULL
 
-typedef enum command_s {
+typedef enum command_e {
   CMD_REFERENCE =     0x00, // LaddieAlpha calls this Directory
   CMD_OPEN =          0x01,
   CMD_CLOSE =         0x02,
@@ -386,17 +386,17 @@ typedef enum command_s {
   CMD_TSDOS_UNK_1 =   0x31
 } command_t;
 
-typedef enum error_s {
+typedef enum error_e {
   ERR_SUCCESS =       0x00,
-  ERR_NOFILE =        0x10,
+  ERR_NO_FILE =       0x10,
   ERR_EXISTS =        0x11,
-  ERR_NO_NAME =       0x30,
+  ERR_NO_NAME =       0x30, // command.tdd calls this EOF
   ERR_DIR_SEARCH =    0x31,
   ERR_BANK =          0x35,
   ERR_PARM =          0x36,
   ERR_FMT_MISMATCH =  0x37,
   ERR_EOF =           0x3f,
-  ERR_NO_START =      0x40,
+  ERR_NO_START =      0x40, // command.tdd calls this IO ERROR (64) (empty name error)
   ERR_ID_CRC =        0x41,
   ERR_SEC_LEN =       0x42,
   ERR_FMT_VERIFY =    0x44,
@@ -406,21 +406,42 @@ typedef enum error_s {
   ERR_SEC_NUM =       0x4a,
   ERR_READ_TIMEOUT =  0x4b,
   ERR_SEC_NUM2 =      0x4d,
-  ERR_WRITE_PROTECT = 0x50,
+  ERR_WRITE_PROTECT = 0x50, // writing to a locked file
   ERR_DISK_NOINIT =   0x5e,
-  ERR_DIR_FULL =      0x60,
+  ERR_DIR_FULL =      0x60, // command.tdd calls this disk full
   ERR_DISK_FULL =     0x61,
   ERR_FILE_LEN =      0x6e,
   ERR_NO_DISK =       0x70,
   ERR_DISK_CHG =      0x71
 } error_t;
 
-typedef enum openmode_s {
-  OPEN_NONE =         0,
-  OPEN_WRITE =        1,
-  OPEN_APPEND =       2,
-  OPEN_READ =         3
+typedef enum openmode_e {
+  OPEN_NONE =         0x00,
+  OPEN_WRITE =        0x01,
+  OPEN_APPEND =       0x02,
+  OPEN_READ =         0x03
 } openmode_t;
+
+typedef enum sysstate_e {
+  SYS_IDLE,
+  SYS_ENUM,
+  SYS_REF,
+  SYS_WRITE,
+  SYS_READ,
+  SYS_PUSH_FILE,
+  SYS_PULL_FILE,
+  SYS_PAUSED
+} sysstate_t;
+
+typedef enum enumtype_e {
+  ENUM_PICK =         0x00,
+  ENUM_FIRST =        0x01,
+  ENUM_NEXT =         0x02,
+  ENUM_PREV =         0x03,
+  ENUM_DONE =         0x04
+} enumtype_t;
+
+sysstate_t _sysstate = SYS_IDLE;
 
 openmode_t _mode = OPEN_NONE;
 
@@ -458,14 +479,14 @@ void printDirectory(File dir, byte numTabs) {
 }
 #endif // DEBUG
 
+unsigned long idleSince = millis();
 #if defined(ENABLE_SLEEP)
  #if !defined(USE_ALP)
   const byte wakeInterrupt = digitalPinToInterrupt(WAKE_PIN);
  #endif // !USE_ALP
 
  #if defined(SLEEP_DELAY)
-  unsigned long now = millis();
-  unsigned long idleSince = now;
+  unsigned long now = idleSince;
  #endif // SLEEP_DELAY
 
 void wakeNow () {
@@ -714,7 +735,7 @@ void tpddSendChecksum(){  //Outputs the checksum to the TPDD port and clears the
  *
  */
 
-void return_normal(byte errorCode){ //Sends a normal return to the TPDD port with error code errorCode
+void return_normal(error_t errorCode){ //Sends a normal return to the TPDD port with error code errorCode
   DEBUG_PRINTL(F("return_normal()"));
 #if DEBUG > 1
   DEBUG_PRINT("R:Norm ");
@@ -872,11 +893,11 @@ void return_parent_reference(){
  *
  */
 
-void command_reference(){ //Reference command handler
+void command_reference(){ // File/Dir Reference command handler
 #ifdef JIM_NEW_LOOP
-  byte searchForm = _buffer[0x19];  //The search form byte exists 0x19 bytes into the command
+  enumtype_t searchForm = (enumtype_t)_buffer[0x19];  //The search form byte exists 0x19 bytes into the command
 #else
-  byte searchForm = dataBuffer[(byte)(tail+0x1D)];  //The search form byte exists 29 bytes into the command
+  enumtype_t searchForm = dataBuffer[(byte)(tail+0x1D)];  //The search form byte exists 29 bytes into the command
 #endif
   byte refIndex = 0x00;  //Reference file name index
 
@@ -887,11 +908,12 @@ void command_reference(){ //Reference command handler
   DEBUG_PRINTIL(searchForm,HEX);
 #endif
 
-  if(searchForm == 0x00){ //Request entry by name
+  switch(searchForm) {
+  case ENUM_PICK:  //Request entry by name
 #ifdef JIM_NEW_LOOP
-    for(uint8_t i = 0; i < FILENAME_SZ; i++){  //Put the reference file name into a buffer
+    for(uint8_t i = 0; i < FILENAME_SZ; i++) {  //Put the reference file name into a buffer
       if(_buffer[i] != ' '){ //If the char pulled from the command is not a space character (0x20)...
-        refFileName[refIndex++]=_buffer[i]; //write it into the buffer and increment the index.
+        refFileName[refIndex++]=_buffer[i];     //write it into the buffer and increment the index.
       }
     }
     refFileName[refIndex] = '\0'; //Terminate the file name buffer with a null character
@@ -903,6 +925,7 @@ void command_reference(){ //Reference command handler
     }
     refFileName[refIndex]=0x00; //Terminate the file name buffer with a null character
 #endif
+    _sysstate = SYS_REF;
 
 #if DEBUG > 1
     DEBUG_PRINT("Ref: ");
@@ -936,18 +959,32 @@ void command_reference(){ //Reference command handler
 
     upDirectory();  //Strip the reference off of the directory buffer
 
-  }else if(searchForm == 0x01){ //Request first directory block
+    break;
+  case ENUM_FIRST:  //Request first directory block
+    _sysstate = SYS_ENUM;
     SD_LED_ON
     root.close();
     root = SD.open(directory);
     ref_openFirst();
-  }else if(searchForm == 0x02){ //Request next directory block
+    break;
+  case ENUM_NEXT:   //Request next directory block
     SD_LED_ON
     root.close();
     root = SD.open(directory);
     ref_openNext();
-  }else{  //Parameter is invalid
+    break;
+  case ENUM_PREV:
+    // TODO really should back up the dir one...
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_PARM);  //  For now, send some error back
+    break;
+  default:          //Parameter is invalid
+    _sysstate = SYS_IDLE;
     return_normal(ERR_PARM);  //Send a normal return to the TPDD port with a parameter error
+    break;
+  case ENUM_DONE:
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with a parameter error
   }
   SD_LED_OFF
 }
@@ -955,7 +992,7 @@ void command_reference(){ //Reference command handler
 void ref_openFirst(){
   DEBUG_PRINTL(F("ref_openFirst()"));
   directoryBlock = 0x00; //Set the current directory entry index to 0
-  if(DME && directoryDepth>0x00 && directoryBlock==0x00){ //Return the "PARENT.<>" reference if we're in DME mode
+  if(DME && directoryDepth > 0x00) { //Return the "PARENT.<>" reference if we're in DME mode
     SD_LED_OFF
     return_parent_reference();
   }else{
@@ -965,28 +1002,38 @@ void ref_openFirst(){
 
 void ref_openNext(){
   DEBUG_PRINTL(F("ref_openNext()"));
-  directoryBlock++; //Increment the directory entry index
-  SD_LED_ON
-  root.rewindDirectory(); //Pull back to the begining of the directory
-  for(byte i=0x00; i<directoryBlock-0x01; i++) root.openNextFile();  //skip to the current entry offset by the index
 
-  //Open the entry
-  if(entry = root.openNextFile()) {  //If the entry exists it is returned
-    if(entry.isHidden() || (entry.isDirectory() && !DME)) {
-      //If it's a directory and we're not in DME mode or file/dir is hidden
-      entry.close();  //the entry is skipped over
-      ref_openNext(); //and this function is called again
+  if(_sysstate == SYS_ENUM) {   // We are enumerating the directory
+    directoryBlock++; //Increment the directory entry index
+    SD_LED_ON
+    root.rewindDirectory(); //Pull back to the begining of the directory
+    for(uint8_t i = 0x00; i < directoryBlock - 0x01; i++)
+      root.openNextFile();  //skip to the current entry offset by the index
+
+    //Open the entry
+    if(entry = root.openNextFile()) {  //If the entry exists it is returned
+      if(entry.isHidden() || (entry.isDirectory() && !DME)) {
+        //If it's a directory and we're not in DME mode or file/dir is hidden
+        entry.close();  //the entry is skipped over
+        ref_openNext(); //and this function is called again
+      } else {
+        return_reference(); //Send the reference info to the TPDD port
+        entry.close();  //Close the entry
+      }
+      SD_LED_OFF
     } else {
-      return_reference(); //Send the reference info to the TPDD port
-      entry.close();  //Close the entry
+      SD_LED_OFF
+      return_blank_reference();
     }
-    SD_LED_OFF
   } else {
-    SD_LED_OFF
-    return_blank_reference();
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_DIR_SEARCH);
   }
 }
 
+/*
+ * System State: This can only run from SYS_REF, and goes to SYS_IDLE if error
+ */
 void command_open(){  //Opens an entry for reading, writing, or appending
 #ifdef JIM_NEW_LOOP
   _mode = (openmode_t)_buffer[0];  //The access mode is stored in the 1st byte of the command payload
@@ -994,121 +1041,195 @@ void command_open(){  //Opens an entry for reading, writing, or appending
   _mode = (openmode_t)dataBuffer[(byte)(tail+0x04)];  //The access mode is stored in the 5th byte of the command
 #endif
   DEBUG_PRINTL(F("command_open()"));
-  entry.close();
 
-  if(DME && strcmp(refFileNameNoDir, "PARENT") == 0x00){ //If DME mode is enabled and the reference is for the "PARENT" directory
-    upDirectory();  //The top-most entry in the directory buffer is taken away
-    directoryDepth--; //and the directory depth index is decremented
-  }else{
-    directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
-    SD_LED_ON
-//    if(DME && (byte)strstr(refFileName, ".<>") != 0x00 && !SD.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
-    if(DME && strstr(refFileName, ".<>") != 0x00 && !SD.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
-      SD.mkdir(directory);  //create the directory
-      upDirectory();
-    }else{
-      entry=SD.open(directory); //Open the directory to reference the entry
-      if(entry.isDirectory()){  //      !!!Moves into a sub-directory
-        entry.close();  //If the entry is a directory
-        directoryAppend("/"); //append a slash to the directory buffer
-        directoryDepth++; //and increment the directory depth index
-      }else{  //If the reference isn't a sub-directory, it's a file
-        entry.close();
-        switch(_mode){
-          case OPEN_WRITE: entry = SD.open(directory, FILE_WRITE); break;               // Write
-          case OPEN_APPEND: entry = SD.open(directory, FILE_WRITE | O_APPEND); break;   // Append
-          case OPEN_READ: entry = SD.open(directory, FILE_READ); break;                 // Read
-        }
+  if(_sysstate == SYS_REF) {
+    entry.close();
+
+    if(DME && strcmp(refFileNameNoDir, "PARENT") == 0x00) { //If DME mode is enabled and the reference is for the "PARENT" directory
+      upDirectory();  //The top-most entry in the directory buffer is taken away
+      directoryDepth--; //and the directory depth index is decremented
+    } else {
+      directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
+      SD_LED_ON
+  //    if(DME && (byte)strstr(refFileName, ".<>") != 0x00 && !SD.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+      if(DME && strstr(refFileName, ".<>") != 0x00 && !SD.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+        SD.mkdir(directory);  //create the directory
         upDirectory();
+      } else {
+        entry = SD.open(directory); //Open the directory to reference the entry
+        if(entry.isDirectory()){  //      !!!Moves into a sub-directory
+          entry.close();  //If the entry is a directory
+          directoryAppend("/"); //append a slash to the directory buffer
+          directoryDepth++; //and increment the directory depth index
+        } else {  //If the reference isn't a sub-directory, it's a file
+          entry.close();
+          switch(_mode){
+            case OPEN_WRITE:
+              entry = SD.open(directory, FILE_WRITE);
+              _sysstate = SYS_WRITE;
+              break;                // Write
+            case OPEN_APPEND:
+              entry = SD.open(directory, FILE_WRITE | O_APPEND);
+              _sysstate = SYS_WRITE;
+              break;                // Append
+            case OPEN_READ:
+            default:
+              entry = SD.open(directory, FILE_READ);
+              _sysstate = SYS_READ;
+              break;                // Read
+          }
+          upDirectory();
+        }
       }
     }
-  }
 
-  if(SD.exists(directory)){ //If the file actually exists...
-    SD_LED_OFF
-    return_normal(ERR_SUCCESS);  //...send a normal return with no error.
-  }else{  //If the file doesn't exist...
-    SD_LED_OFF
-    return_normal(ERR_NOFILE);  //...send a normal return with a "file does not exist" error.
+    if(SD.exists(directory)) { //If the file actually exists...
+      SD_LED_OFF
+      return_normal(ERR_SUCCESS);  //...send a normal return with no error.
+    } else {  //If the file doesn't exist...
+      SD_LED_OFF
+      return_normal(ERR_NO_FILE);  //...send a normal return with a "file does not exist" error.
+    }
+  } else {  // wrong system state
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_NO_FILE);  //...send a normal return with a "file does not exist" error.
+
   }
 }
 
-void command_close(){ //Closes the currently open entry
+/*
+ * System State:  Technically, should only run from SYS_READ or SYS_WRITE, but
+ *                we'll go ahead and be lenient.
+ */
+void command_close() {  // Closes the currently open entry
   DEBUG_PRINTL(F("command_close()"));
   entry.close();  //Close the entry
   SD_LED_OFF
+  _sysstate = SYS_IDLE;
   return_normal(ERR_SUCCESS);  //Normal return with no error
 }
 
+/*
+ * System State: This can only run from SYS_READ, and goes to SYS_IDLE if error
+ */
 void command_read(){  //Read a block of data from the currently open entry
   DEBUG_PRINTL(F("command_read()"));
-  SD_LED_ON
-  byte bytesRead = entry.read(fileBuffer, FILE_BUFFER_SZ); //Try to pull 128 bytes from the file into the buffer
-  SD_LED_OFF
-#if DEBUG > 1
-  DEBUG_PRINT("A: ");
-  DEBUG_PRINTIL(entry.available(),HEX);
-#endif
-  if(bytesRead > 0x00){  //Send the read return if there is data to be read
-    tpddWrite(RET_READ);  //Return type
-    tpddWrite(bytesRead); //Data length
-    for(byte i=0x00; i<bytesRead; i++) tpddWrite(fileBuffer[i]);
-    tpddSendChecksum();
-  }else{
-    return_normal(ERR_EOF);  //send a normal return with an end-of-file error if there is no data left to read
+  if(_sysstate == SYS_READ) {
+    SD_LED_ON
+    byte bytesRead = entry.read(fileBuffer, FILE_BUFFER_SZ); //Try to pull 128 bytes from the file into the buffer
+    SD_LED_OFF
+  #if DEBUG > 1
+    DEBUG_PRINT("A: ");
+    DEBUG_PRINTIL(entry.available(),HEX);
+  #endif
+    if(bytesRead > 0x00){  //Send the read return if there is data to be read
+      tpddWrite(RET_READ);  //Return type
+      tpddWrite(bytesRead); //Data length
+      tpddWriteBuf(fileBuffer,bytesRead);
+      tpddSendChecksum();
+    } else { //send a normal return with an end-of-file error if there is no data left to read
+      return_normal(ERR_EOF);
+    }
+  } else if(_sysstate == SYS_WRITE) {
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_FMT_MISMATCH);  // trying to read from a write/append file.
+  } else {
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_NO_NAME);       // no file to reference
   }
 }
 
-// TODO what if there is no file open?
+/*
+ * System State: This can only run from SYS_WRITE, and goes to SYS_IDLE if error
+ */
 void command_write(){ //Write a block of data from the command to the currently open entry
+  int32_t len;
+
 #ifndef JIM_NEW_LOOP
   byte commandDataLength = dataBuffer[(byte)(tail+0x03)];
 #endif
   DEBUG_PRINTL(F("command_write()"));
-  SD_LED_ON
+  if(_sysstate == SYS_WRITE) {
+    SD_LED_ON
+    #ifdef JIM_NEW_LOOP
+      len = entry.write(_buffer, _length);
+    #else
+      len = entry.write(&(dataBuffer[tail+0x04]), commandDataLength);
+      //for(byte i=0x00; i<commandDataLength; i++) entry.write(dataBuffer[(byte)(tail+0x04+i)]);
+    #endif
+    SD_LED_OFF
 #ifdef JIM_NEW_LOOP
-  entry.write(_buffer, _length);
+    if(len == _length) {
 #else
-  for(byte i=0x00; i<commandDataLength; i++) entry.write(dataBuffer[(byte)(tail+0x04+i)]);
+    if(len == commandDataLength) {
 #endif
-  SD_LED_OFF
-  return_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with no error
+      return_normal(ERR_SUCCESS);   // Send a normal return to the TPDD port with no error
+    } else if(len < 0) { // general error
+      return_normal(ERR_DATA_CRC);  // Pick someting for general error
+    } else { // didn't store as many bytes as received.
+      return_normal(ERR_SEC_NUM);   // Send Sector Number Error (bogus, but...)
+    }
+  } else if(_sysstate == SYS_READ) {
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_FMT_MISMATCH); // trying to write a file opened for reading.
+  } else {
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_NO_NAME); // no file to reference
+  }
 }
 
+/*
+ * System State: This can only run from SYS_REF, and goes to SYS_IDLE afterwards
+ */
 void command_delete(){  //Delete the currently open entry
   DEBUG_PRINTL(F("command_delete()"));
-  SD_LED_ON
-  entry.close();  //Close any open entries
-  directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
-  entry = SD.open(directory, FILE_READ);  //directory can be deleted if opened "READ"
 
-  if(DME && entry.isDirectory()){
-    entry.rmdir();  //If we're in DME mode and the entry is a directory, delete it
-  }else{
-    entry.close();  //Files can be deleted if opened "WRITE", so it needs to be re-opened
-    entry = SD.open(directory, FILE_WRITE);
-    entry.remove();
+  if(_sysstate == SYS_REF) {
+    SD_LED_ON
+    entry.close();  //Close any open entries
+    directoryAppend(refFileNameNoDir);  //Push the reference name onto the directory buffer
+    entry = SD.open(directory, FILE_READ);  //directory can be deleted if opened "READ"
+
+    if(DME && entry.isDirectory()){
+      entry.rmdir();  //If we're in DME mode and the entry is a directory, delete it
+    }else{
+      entry.close();  //Files can be deleted if opened "WRITE", so it needs to be re-opened
+      entry = SD.open(directory, FILE_WRITE);
+      entry.remove();
+    }
+    SD_LED_OFF
+    upDirectory();
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_SUCCESS);  //Send a normal return with no error
+  } else {
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_NO_FILE);
   }
-  SD_LED_OFF
-  upDirectory();
-  return_normal(ERR_SUCCESS);  //Send a normal return with no error
+}
+
+void notImplemented(void) {
+  _sysstate = SYS_IDLE;
+  return_normal(ERR_SUCCESS);
 }
 
 void command_format(){  //Not implemented
   DEBUG_PRINTL(F("command_format()"));
-  return_normal(ERR_SUCCESS);
+  notImplemented();
 }
 
 void command_status(){  //Drive status
   DEBUG_PRINTL(F("command_status()"));
-  return_normal(ERR_SUCCESS);
+  notImplemented();
 }
 
 void command_condition(){ //Not implemented
   DEBUG_PRINTL(F("command_condition()"));
-  return_normal(ERR_SUCCESS);
+  notImplemented();
 }
 
+/*
+ * System State: This can only run from SYS_REF, and goes to SYS_IDLE afterwards
+ */
 void command_rename(){  //Renames the currently open entry
 #ifndef JIM_NEW_LOOP
   byte refIndex = 0x00;  //Temporary index for the reference name
@@ -1116,58 +1237,65 @@ void command_rename(){  //Renames the currently open entry
 
   DEBUG_PRINTL(F("command_rename()"));
 
-  directoryAppend(refFileNameNoDir);  //Push the current reference name onto the directory buffer
+  if(_sysstate == SYS_REF) { // we have a file reference to use.
 
-  SD_LED_ON
+    directoryAppend(refFileNameNoDir);  //Push the current reference name onto the directory buffer
 
-  if(entry) entry.close(); //Close any currently open entries
-  entry = SD.open(directory); //Open the entry
-  if(entry.isDirectory()) directoryAppend("/"); //Append a slash to the end of the directory buffer if the reference is a sub-directory
+    SD_LED_ON
 
-  copyDirectory();  //Copy the directory buffer to the scratchpad directory buffer
-  upDirectory();  //Strip the previous directory reference off of the directory buffer
+    if(entry) entry.close(); //Close any currently open entries
+    entry = SD.open(directory); //Open the entry
+    if(entry.isDirectory()) directoryAppend("/"); //Append a slash to the end of the directory buffer if the reference is a sub-directory
 
-#ifdef JIM_NEW_LOOP
-  uint8_t i;
-  for(i = 0; i < FILENAME_SZ;i++) {
-    if(_buffer[i] == 0 || _buffer[i] == ' ')
-      break;
-    tempRefFileName[i] = _buffer[i];
-  }
-  tempRefFileName[i] = '\0'; //Terminate the temporary reference name with a null character
-#else
-  for(byte i=0x04; i<0x1C; i++){  //Loop through the command's data block, which contains the new entry name
-    if(dataBuffer[(byte)(tail+i)]!=0x20 && dataBuffer[(byte)(tail+i)]!=0x00){ //If the current character is not a space (0x20) or null character...
-      tempRefFileName[refIndex++]=dataBuffer[(byte)(tail+i)]; //...copy the character to the temporary reference name and increment the pointer.
+    copyDirectory();  //Copy the directory buffer to the scratchpad directory buffer
+    upDirectory();  //Strip the previous directory reference off of the directory buffer
+
+  #ifdef JIM_NEW_LOOP
+    uint8_t i;
+    for(i = 0; i < FILENAME_SZ;i++) {
+      if(_buffer[i] == 0 || _buffer[i] == ' ')
+        break;
+      tempRefFileName[i] = _buffer[i];
     }
-  }
-  tempRefFileName[refIndex]=0x00; //Terminate the temporary reference name with a null character
-#endif
+    tempRefFileName[i] = '\0'; //Terminate the temporary reference name with a null character
+  #else
+    for(byte i=0x04; i<0x1C; i++){  //Loop through the command's data block, which contains the new entry name
+      if(dataBuffer[(byte)(tail+i)]!=0x20 && dataBuffer[(byte)(tail+i)]!=0x00){ //If the current character is not a space (0x20) or null character...
+        tempRefFileName[refIndex++]=dataBuffer[(byte)(tail+i)]; //...copy the character to the temporary reference name and increment the pointer.
+      }
+    }
+    tempRefFileName[refIndex]=0x00; //Terminate the temporary reference name with a null character
+  #endif
 
 
-  if(DME && entry.isDirectory()){ //      !!!If the entry is a directory, we need to strip the ".<>" off of the new directory name
-    if(strstr(tempRefFileName, ".<>") != 0x00){
-      for(byte i=0x00; i<FILENAME_SZ; i++){
-        if(tempRefFileName[i] == '.' || tempRefFileName[i] == '<' || tempRefFileName[i] == '>'){
-          tempRefFileName[i]=0x00;
+    if(DME && entry.isDirectory()){ //      !!!If the entry is a directory, we need to strip the ".<>" off of the new directory name
+      if(strstr(tempRefFileName, ".<>") != 0x00){
+        for(byte i=0x00; i<FILENAME_SZ; i++){
+          if(tempRefFileName[i] == '.' || tempRefFileName[i] == '<' || tempRefFileName[i] == '>'){
+            tempRefFileName[i]=0x00;
+          }
         }
       }
     }
+
+    directoryAppend(tempRefFileName);
+    if(entry.isDirectory()) directoryAppend("/");
+
+    DEBUG_PRINTL(directory);
+    DEBUG_PRINTL(tempDirectory);
+    SD.rename(tempDirectory,directory);  //Rename the entry
+
+    upDirectory();
+    entry.close();
+
+    SD_LED_OFF
+
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_SUCCESS);   // Send a normal return to the TPDD port with no error
+  } else { // wrong system state
+    _sysstate = SYS_IDLE;
+    return_normal(ERR_NO_FILE);    // No file to rename
   }
-
-  directoryAppend(tempRefFileName);
-  if(entry.isDirectory()) directoryAppend("/");
-
-  DEBUG_PRINTL(directory);
-  DEBUG_PRINTL(tempDirectory);
-  SD.rename(tempDirectory,directory);  //Rename the entry
-
-  upDirectory();
-  entry.close();
-
-  SD_LED_OFF
-
-  return_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with no error
 }
 
 /*
@@ -1176,24 +1304,29 @@ void command_rename(){  //Renames the currently open entry
  *
  */
 
+/*
+ * System State: This can run from any state, and does not alter state
+ */
 void command_DMEReq() {  //Send the dmeLabel
 
   DEBUG_PRINT(F("command_DMEReq(): dmeLabel[")); DEBUG_PRINT(dmeLabel); DEBUG_PRINTL(F("]"));
 
-  if(DME){  // prepend "/" to the root dir label just because my janky-ass setLabel() assumes it
-    if (directoryDepth>0x00) setLabel(directory); else setLabel("/SD:   ");
-    tpddWrite(RET_NORMAL);
-    tpddWrite(0x0B);
-    tpddWrite(0x20);
-    for (byte i=0x00 ; i<0x06 ; i++) tpddWrite(dmeLabel[i]);
-    tpddWrite('.');
-    tpddWrite('<');
-    tpddWrite('>');
-    tpddWrite(0x20);
-    tpddSendChecksum();
-  }else{
-    return_normal(ERR_PARM); // JLB Really?  A PARM Error on successful DME response?
-  }
+  /* as per
+   * http://bitchin100.com/wiki/index.php?title=Desklink/TS-DOS_Directory_Access#TPDD_Service_discovery
+   * The mere inclusion of this command implies Directory Mode Extensions, so enable
+   */
+  DME = true;
+  // prepend "/" to the root dir label just because my janky-ass setLabel() assumes it
+  if (directoryDepth>0x00) setLabel(directory); else setLabel("/SD:   ");
+  tpddWrite(RET_NORMAL);
+  tpddWrite(0x0B);
+  tpddWrite(0x20);
+  for (byte i=0x00 ; i<0x06 ; i++) tpddWrite(dmeLabel[i]);
+  tpddWrite('.');
+  tpddWrite('<');
+  tpddWrite('>');
+  tpddWrite(' ');
+  tpddSendChecksum();
 }
 
 /*
@@ -1322,7 +1455,7 @@ void setup() {
  */
 
 // 0 = waiting for command, 1 = waiting for full command, 2 = have full command
-typedef enum state_s {
+typedef enum cmdstate_s {
   IDLE,
   CMD_STARTED,
   CMD_COMPLETE,
@@ -1330,23 +1463,29 @@ typedef enum state_s {
   FOUND_Z2,
   FOUND_CMD,
   FOUND_LEN,
-  FOUND_DME_SET,
-} state_t;
+  FOUND_MODE,
+} cmdstate_t;
 
 void loop() {
-  state_t state = IDLE;
+#ifdef JIM_NEW_LOOP
+  cmdstate_t state = IDLE;
   uint8_t i = 0;
   uint8_t data;
   uint8_t cmd = 0; // make the compiler happy
-#ifdef JIM_NEW_LOOP
+
   DEBUG_PRINTL(F("loop(): start"));
 
   while(true) {
   #if defined(ENABLE_SLEEP)
     sleepNow();
   #endif // ENABLE_SLEEP
+    if(millis() - idleSince > 500) { // interval between cmd element > ./5s
+      state = IDLE; // go back to IDLE state.
+      idleSince = millis();
+    }
     // should check for a timeout...
     while(CLIENT.available()) {
+      idleSince = millis();  // reset timer.
       #if defined(ENABLE_SLEEP)
        #if defined(SLEEP_DELAY)
         idleSince = millis();
@@ -1368,11 +1507,14 @@ void loop() {
         if(data == 'Z')
           state = FOUND_Z;
         else if(data == 'M')
-          state = FOUND_DME_SET;
+          state = FOUND_MODE;
         break;
       case FOUND_Z:
-        if(data == 'Z')
+        if(data == 'Z') {
           state = FOUND_Z2;
+
+        } else
+          state = IDLE;
         break;
       case FOUND_Z2:
         cmd = data;
@@ -1406,20 +1548,21 @@ void loop() {
             case CMD_DMEREQ:    command_DMEReq(); break; // DME Command
             case CMD_CONDITION: command_condition(); break;
             case CMD_RENAME: command_rename(); break;
-            default: return_normal(0x36); break;  // Send a normal return with a parameter error if the command is not implemented
+            default: return_normal(ERR_PARM); break;  // Send a normal return with a parameter error if the command is not implemented
           }
           state = IDLE;
         }
         break;
-      case FOUND_DME_SET:
-        // I *think* a DME set command is 'M1\r' to turn on and 'M0\r' to turn off, but we'll assume just the 'M1' for now
-        if(data == '1') {
-          DME = true;
-        }
+      case FOUND_MODE:
+        // 1 = operational mode
+        // 0 = FDC emulation mode
+        // (ignore for now).
+        _sysstate = SYS_IDLE;
         state = IDLE;
         break;
       default:
         // not sure how you'd get here, but...
+        _sysstate = SYS_IDLE;
         state = IDLE;
         break;
       }
