@@ -327,20 +327,26 @@ SdFat SD;
 #define DIRECTORY_SZ 0x40      // size of directory[] which holds full paths
 #define FILENAME_SZ 0x18       // TPDD protocol spec 1C, minus 4 for ".<>"+NULL
 
+#define JIM_MODS  // Just so I can find the next item when it is commented out.
+#define JIM_NEW_LOOP
 
 File root;  //Root file for filesystem reference
 File entry; //Moving file entry for the emulator
 File tempEntry; //Temporary entry for moving files
 
+#ifndef JIM_NEW_LOOP
 byte head = 0x00;  //Head index
 byte tail = 0x00;  //Tail index
+byte dataBuffer[DATA_BUFFER_SZ]; //Data buffer for commands
+#endif
 
 byte checksum = 0x00;  //Global variable for checksum calculation
 
-byte state = 0x00; //Emulator command reading state
 bool DME = false; //TS-DOS DME mode flag
 
-byte dataBuffer[DATA_BUFFER_SZ]; //Data buffer for commands
+uint8_t _buffer[DATA_BUFFER_SZ]; //Data buffer for commands
+uint8_t _length;
+
 byte fileBuffer[FILE_BUFFER_SZ]; //Data buffer for file reading
 
 char refFileName[FILENAME_SZ] = "";  //Reference file name for emulator
@@ -354,51 +360,71 @@ char tempDirectory[DIRECTORY_SZ] = "/";
 char dmeLabel[0x07] = "";  // 6 chars + NULL
 
 typedef enum command_s {
-  CMD_REFERENCE = 0,
-  CMD_OPEN,
-  CMD_CLOSE,
-  CMD_READ,
-  CMD_WRITE,
-  CMD_DELETE,
-  CMD_FORMAT,
-  CMD_STATUS,
-  CMD_DMEREQ,
-  CMD_CONDITION = 0x0c,
-  CMD_RENAME,
-  RET_READ = 0x10,
-  RET_DIRECTORY,
-  RET_NORMAL,
-  RET_CONDITION = 0x15
+  CMD_REFERENCE =     0x00, // LaddieAlpha calls this Directory
+  CMD_OPEN =          0x01,
+  CMD_CLOSE =         0x02,
+  CMD_READ =          0x03,
+  CMD_WRITE =         0x04,
+  CMD_DELETE =        0x05,
+  CMD_FORMAT =        0x06,
+  CMD_STATUS =        0x07,
+  CMD_DMEREQ =        0x08,
+  CMD_SEEK =          0x09,
+  CMD_TELL =          0x0a,
+  CMD_SET_EXT =       0x0b,
+  CMD_CONDITION =     0x0c,
+  CMD_RENAME =        0x0d,
+  CMD_REQ_EXT_QUERY = 0x0e,
+  CMD_COND_LIST =     0x0f,
+
+  RET_READ =          0x10,
+  RET_DIRECTORY =     0x11,
+  RET_NORMAL =        0x12,
+  RET_CONDITION =     0x15,
+
+  CMD_TSDOS_UNK_2 =   0x23,
+  CMD_TSDOS_UNK_1 =   0x31
 } command_t;
 
 typedef enum error_s {
-  ERR_SUCCESS,
-  ERR_NOFILE = 0x10,
-  ERR_EXISTS,
-  ERR_NO_NAME = 0x30,
-  ERR_DIR_SEARCH,
-  ERR_BANK = 0x35,
-  ERR_PARM,
-  ERR_FMT_MISMATCH,
-  ERR_EOF = 0x3f,
-  ERR_NO_START = 0x40,
-  ERR_ID_CRC,
-  ERR_SEC_LEN,
-  ERR_FMT_VERIFY = 0x44,
-  ERR_FMT_INTRPT = 0x46,
-  ERR_ERASE_OFFSET,
-  ERR_DATA_CRC = 0x49,
-  ERR_SEC_NUM,
-  ERR_READ_TIMEOUT,
-  ERR_SEC_NUM2 = 0x4d,
+  ERR_SUCCESS =       0x00,
+  ERR_NOFILE =        0x10,
+  ERR_EXISTS =        0x11,
+  ERR_NO_NAME =       0x30,
+  ERR_DIR_SEARCH =    0x31,
+  ERR_BANK =          0x35,
+  ERR_PARM =          0x36,
+  ERR_FMT_MISMATCH =  0x37,
+  ERR_EOF =           0x3f,
+  ERR_NO_START =      0x40,
+  ERR_ID_CRC =        0x41,
+  ERR_SEC_LEN =       0x42,
+  ERR_FMT_VERIFY =    0x44,
+  ERR_FMT_INTRPT =    0x46,
+  ERR_ERASE_OFFSET =  0x47,
+  ERR_DATA_CRC =      0x49,
+  ERR_SEC_NUM =       0x4a,
+  ERR_READ_TIMEOUT =  0x4b,
+  ERR_SEC_NUM2 =      0x4d,
   ERR_WRITE_PROTECT = 0x50,
-  ERR_DISK_NOINIT = 0x5e,
-  ERR_DIR_FULL = 0x60,
-  ERR_DISK_FULL,
-  ERR_FILE_LEN = 0x6e,
-  ERR_NO_DISK = 0x70,
-  ERR_DISK_CHG
+  ERR_DISK_NOINIT =   0x5e,
+  ERR_DIR_FULL =      0x60,
+  ERR_DISK_FULL =     0x61,
+  ERR_FILE_LEN =      0x6e,
+  ERR_NO_DISK =       0x70,
+  ERR_DISK_CHG =      0x71
 } error_t;
+
+typedef enum openmode_s {
+  OPEN_NONE =         0,
+  OPEN_WRITE =        1,
+  OPEN_APPEND =       2,
+  OPEN_READ =         3
+} openmode_t;
+
+openmode_t _mode = OPEN_NONE;
+
+#define TOKEN_BASIC_END_OF_FILE 0x1A
 
 /*
  *
@@ -571,7 +597,7 @@ void sendLoader() {
       }
     f.close();
     SD_LED_OFF
-    CLIENT.write(0x1A);
+    CLIENT.write(TOKEN_BASIC_END_OF_FILE);
     CLIENT.flush();
     CLIENT.end();
     DEBUG_PRINTL(F("DONE"));
@@ -583,7 +609,7 @@ void sendLoader() {
 #endif // LOADER_FILE
 
 // Append a string to directory[]
-void directoryAppend(char* c){
+void directoryAppend(const char* c){
   bool t = false;
   byte i = 0x00;
   byte j = 0x00;
@@ -627,7 +653,7 @@ void copyDirectory(){ //Makes a copy of the working directory to a scratchpad
 // We could just read directory[] directly instead of passng s[]
 // but this way we can pass arbitrary values later. For example
 // FAT volume label, RTC time, battery level, ...
-void setLabel(char* s) {
+void setLabel(const char* s) {
   byte z = DIRECTORY_SZ;
   byte j = z;
 
@@ -663,19 +689,21 @@ void tpddWrite(char c){  //Outputs char c to TPDD port and adds to the checksum
 
 }
 
+void tpddWriteBuf(uint8_t *data, uint16_t len) {
+  for(uint16_t i = 0; i < len; i++) {
+    tpddWrite(data[i]);
+  }
+}
+
 void tpddWriteString(char* c){  //Outputs a null-terminated char array c to the TPDD port
   byte i = 0x00;
-  while(c[i]!=0x00){
-    checksum += c[i];
-    CLIENT.write(c[i]);
-    DEBUG_PRINT(F("Sent:"));
-    DEBUG_PRINTIL((byte)c,HEX);
-    i++;
+  while(c[i] != '\0'){
+    tpddWrite(c[i++]);
   }
 }
 
 void tpddSendChecksum(){  //Outputs the checksum to the TPDD port and clears the checksum
-  CLIENT.write(checksum^0xFF);
+  CLIENT.write(checksum ^ 0xFF);
   checksum = 0x00;
 }
 
@@ -698,7 +726,7 @@ void return_normal(byte errorCode){ //Sends a normal return to the TPDD port wit
   tpddSendChecksum(); //Checksum
 }
 
-void returnReference(char *name, bool isDir, uint16_t size ) {
+void returnReference(const char *name, bool isDir, uint16_t size ) {
   uint8_t i, j;
 
   DEBUG_PRINTL(F("returnReference()"));
@@ -845,7 +873,11 @@ void return_parent_reference(){
  */
 
 void command_reference(){ //Reference command handler
+#ifdef JIM_NEW_LOOP
+  byte searchForm = _buffer[0x19];  //The search form byte exists 0x19 bytes into the command
+#else
   byte searchForm = dataBuffer[(byte)(tail+0x1D)];  //The search form byte exists 29 bytes into the command
+#endif
   byte refIndex = 0x00;  //Reference file name index
 
   DEBUG_PRINTL(F("command_reference()"));
@@ -856,12 +888,21 @@ void command_reference(){ //Reference command handler
 #endif
 
   if(searchForm == 0x00){ //Request entry by name
+#ifdef JIM_NEW_LOOP
+    for(uint8_t i = 0; i < FILENAME_SZ; i++){  //Put the reference file name into a buffer
+      if(_buffer[i] != ' '){ //If the char pulled from the command is not a space character (0x20)...
+        refFileName[refIndex++]=_buffer[i]; //write it into the buffer and increment the index.
+      }
+    }
+    refFileName[refIndex] = '\0'; //Terminate the file name buffer with a null character
+#else
     for(byte i=0x04; i<0x1C; i++){  //Put the reference file name into a buffer
       if(dataBuffer[(tail+i)]!=0x20){ //If the char pulled from the command is not a space character (0x20)...
         refFileName[refIndex++]=dataBuffer[(tail+i)]; //write it into the buffer and increment the index.
       }
     }
     refFileName[refIndex]=0x00; //Terminate the file name buffer with a null character
+#endif
 
 #if DEBUG > 1
     DEBUG_PRINT("Ref: ");
@@ -947,7 +988,11 @@ void ref_openNext(){
 }
 
 void command_open(){  //Opens an entry for reading, writing, or appending
-  byte rMode = dataBuffer[(byte)(tail+0x04)];  //The access mode is stored in the 5th byte of the command
+#ifdef JIM_NEW_LOOP
+  _mode = (openmode_t)_buffer[0];  //The access mode is stored in the 1st byte of the command payload
+#else
+  _mode = (openmode_t)dataBuffer[(byte)(tail+0x04)];  //The access mode is stored in the 5th byte of the command
+#endif
   DEBUG_PRINTL(F("command_open()"));
   entry.close();
 
@@ -969,10 +1014,10 @@ void command_open(){  //Opens an entry for reading, writing, or appending
         directoryDepth++; //and increment the directory depth index
       }else{  //If the reference isn't a sub-directory, it's a file
         entry.close();
-        switch(rMode){
-          case 0x01: entry = SD.open(directory, FILE_WRITE); break;             // Write
-          case 0x02: entry = SD.open(directory, FILE_WRITE | O_APPEND); break;  // Append
-          case 0x03: entry = SD.open(directory, FILE_READ); break;              // Read
+        switch(_mode){
+          case OPEN_WRITE: entry = SD.open(directory, FILE_WRITE); break;               // Write
+          case OPEN_APPEND: entry = SD.open(directory, FILE_WRITE | O_APPEND); break;   // Append
+          case OPEN_READ: entry = SD.open(directory, FILE_READ); break;                 // Read
         }
         upDirectory();
       }
@@ -1014,12 +1059,18 @@ void command_read(){  //Read a block of data from the currently open entry
   }
 }
 
+// TODO what if there is no file open?
 void command_write(){ //Write a block of data from the command to the currently open entry
+#ifndef JIM_NEW_LOOP
   byte commandDataLength = dataBuffer[(byte)(tail+0x03)];
-
+#endif
   DEBUG_PRINTL(F("command_write()"));
   SD_LED_ON
+#ifdef JIM_NEW_LOOP
+  entry.write(_buffer, _length);
+#else
   for(byte i=0x00; i<commandDataLength; i++) entry.write(dataBuffer[(byte)(tail+0x04+i)]);
+#endif
   SD_LED_OFF
   return_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with no error
 }
@@ -1059,7 +1110,9 @@ void command_condition(){ //Not implemented
 }
 
 void command_rename(){  //Renames the currently open entry
+#ifndef JIM_NEW_LOOP
   byte refIndex = 0x00;  //Temporary index for the reference name
+#endif
 
   DEBUG_PRINTL(F("command_rename()"));
 
@@ -1074,13 +1127,23 @@ void command_rename(){  //Renames the currently open entry
   copyDirectory();  //Copy the directory buffer to the scratchpad directory buffer
   upDirectory();  //Strip the previous directory reference off of the directory buffer
 
-  for(byte i=0x04; i<0x1C; i++){  //Loop through the command's data block, which contains the new entry name
-      if(dataBuffer[(byte)(tail+i)]!=0x20 && dataBuffer[(byte)(tail+i)]!=0x00){ //If the current character is not a space (0x20) or null character...
-        tempRefFileName[refIndex++]=dataBuffer[(byte)(tail+i)]; //...copy the character to the temporary reference name and increment the pointer.
-      }
+#ifdef JIM_NEW_LOOP
+  uint8_t i;
+  for(i = 0; i < FILENAME_SZ;i++) {
+    if(_buffer[i] == 0 || _buffer[i] == ' ')
+      break;
+    tempRefFileName[i] = _buffer[i];
   }
-
+  tempRefFileName[i] = '\0'; //Terminate the temporary reference name with a null character
+#else
+  for(byte i=0x04; i<0x1C; i++){  //Loop through the command's data block, which contains the new entry name
+    if(dataBuffer[(byte)(tail+i)]!=0x20 && dataBuffer[(byte)(tail+i)]!=0x00){ //If the current character is not a space (0x20) or null character...
+      tempRefFileName[refIndex++]=dataBuffer[(byte)(tail+i)]; //...copy the character to the temporary reference name and increment the pointer.
+    }
+  }
   tempRefFileName[refIndex]=0x00; //Terminate the temporary reference name with a null character
+#endif
+
 
   if(DME && entry.isDirectory()){ //      !!!If the entry is a directory, we need to strip the ".<>" off of the new directory name
     if(strstr(tempRefFileName, ".<>") != 0x00){
@@ -1104,7 +1167,7 @@ void command_rename(){  //Renames the currently open entry
 
   SD_LED_OFF
 
-  return_normal(0x00);  //Send a normal return to the TPDD port with no error
+  return_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with no error
 }
 
 /*
@@ -1129,10 +1192,9 @@ void command_DMEReq() {  //Send the dmeLabel
     tpddWrite(0x20);
     tpddSendChecksum();
   }else{
-    return_normal(0x36);
+    return_normal(ERR_PARM); // JLB Really?  A PARM Error on successful DME response?
   }
 }
-
 
 /*
  *
@@ -1202,7 +1264,9 @@ void setup() {
   DEBUG_PRINTL(F("disabled"));
 #endif // DSR_PIN && LOADER_FILE
 
+#ifndef JIM_NEW_LOOP
   for(byte i=0x00;i<FILE_BUFFER_SZ;++i) dataBuffer[i] = 0x00;
+#endif
 
 #if defined(USE_SDIO)
  #if DEBUG > 2
@@ -1257,18 +1321,121 @@ void setup() {
  *
  */
 
+// 0 = waiting for command, 1 = waiting for full command, 2 = have full command
+typedef enum state_s {
+  IDLE,
+  CMD_STARTED,
+  CMD_COMPLETE,
+  FOUND_Z,
+  FOUND_Z2,
+  FOUND_CMD,
+  FOUND_LEN,
+  FOUND_DME_SET,
+} state_t;
+
 void loop() {
+  state_t state = IDLE;
+  uint8_t i = 0;
+  uint8_t data;
+  uint8_t cmd = 0; // make the compiler happy
+#ifdef JIM_NEW_LOOP
+  DEBUG_PRINTL(F("loop(): start"));
+
+  while(true) {
+  #if defined(ENABLE_SLEEP)
+    sleepNow();
+  #endif // ENABLE_SLEEP
+    // should check for a timeout...
+    while(CLIENT.available()) {
+      #if defined(ENABLE_SLEEP)
+       #if defined(SLEEP_DELAY)
+        idleSince = millis();
+       #endif // SLEEP_DELAY
+      #endif // ENABLE_SLEEP
+      data = (uint8_t)CLIENT.read();
+      #if DEBUG > 1
+        DEBUG_PRINTI((uint8_t)i, HEX);
+        DEBUG_PRINT(" - ");
+        DEBUG_PRINTI((uint8_t)data, HEX);
+        if(data > 0x20 && data < 0x7f) {
+          DEBUG_PRINT(";");
+          DEBUG_PRINT((char)data);
+        }
+        DEBUG_PRINTL("");
+      #endif
+      switch (state) {
+      case IDLE:
+        if(data == 'Z')
+          state = FOUND_Z;
+        else if(data == 'M')
+          state = FOUND_DME_SET;
+        break;
+      case FOUND_Z:
+        if(data == 'Z')
+          state = FOUND_Z2;
+        break;
+      case FOUND_Z2:
+        cmd = data;
+        state = FOUND_CMD;
+        break;
+      case FOUND_CMD:
+        _length = data;
+        i = 0;
+        state = FOUND_LEN;
+        break;
+      case FOUND_LEN:
+        if(i < _length)
+          _buffer[i++] = data;
+        else { // cmd is complete.  Execute
+          #if DEBUG > 1
+            DEBUG_PRINT("T:"); //...the command type...
+            DEBUG_PRINTI(cmd, HEX);
+            DEBUG_PRINT("|L:");  //...and the command length.
+            DEBUG_PRINTI(_length, HEX);
+            DEBUG_PRINTL(DME ? 'D' : '.');
+          #endif
+          switch(cmd){  // Select the command handler routine to jump to based on the command type
+            case CMD_REFERENCE: command_reference(); break;
+            case CMD_OPEN:      command_open(); break;
+            case CMD_CLOSE:     command_close(); break;
+            case CMD_READ:      command_read(); break;
+            case CMD_WRITE:     command_write(); break;
+            case CMD_DELETE:    command_delete(); break;
+            case CMD_FORMAT:    command_format(); break;
+            case CMD_STATUS:    command_status(); break;
+            case CMD_DMEREQ:    command_DMEReq(); break; // DME Command
+            case CMD_CONDITION: command_condition(); break;
+            case CMD_RENAME: command_rename(); break;
+            default: return_normal(0x36); break;  // Send a normal return with a parameter error if the command is not implemented
+          }
+          state = IDLE;
+        }
+        break;
+      case FOUND_DME_SET:
+        // I *think* a DME set command is 'M1\r' to turn on and 'M0\r' to turn off, but we'll assume just the 'M1' for now
+        if(data == '1') {
+          DME = true;
+        }
+        state = IDLE;
+        break;
+      default:
+        // not sure how you'd get here, but...
+        state = IDLE;
+        break;
+      }
+    }
+  }
+#else
   command_t rType = CMD_REFERENCE; // Current request type (command type)
   byte rLength = 0x00; // Current request length (command length)
   byte diff = 0x00;  // Difference between the head and tail buffer indexes
 
   DEBUG_PRINTL(F("loop(): start"));
-  state = 0x00; // 0 = waiting for command, 1 = waiting for full command, 2 = have full command
 
 //#if defined(ENABLE_SLEEP)
 //  sleepNow();
 //#endif // ENABLE_SLEEP
-  while(state<0x02){ // While waiting for a command...
+  while(state != CMD_COMPLETE){ // While waiting for a command...
 #if defined(ENABLE_SLEEP)
     sleepNow();
 #endif // ENABLE_SLEEP
@@ -1354,5 +1521,6 @@ void loop() {
 
 #if DEBUG > 1
   DEBUG_PRINTIL(tail,HEX);
+#endif
 #endif
 }
