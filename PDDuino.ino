@@ -360,7 +360,7 @@ char tempDirectory[DIRECTORY_SZ] = "/";
 char dmeLabel[0x07] = "";  // 6 chars + NULL
 
 typedef enum command_e {
-  CMD_REFERENCE =     0x00, // LaddieAlpha calls this Directory
+  CMD_REFERENCE =     0x00,
   CMD_OPEN =          0x01,
   CMD_CLOSE =         0x02,
   CMD_READ =          0x03,
@@ -374,16 +374,18 @@ typedef enum command_e {
   CMD_SET_EXT =       0x0b,
   CMD_CONDITION =     0x0c,
   CMD_RENAME =        0x0d,
-  CMD_REQ_EXT_QUERY = 0x0e,
+  CMD_REQ_QUERY_EXT = 0x0e,
   CMD_COND_LIST =     0x0f,
 
   RET_READ =          0x10,
   RET_DIRECTORY =     0x11,
   RET_NORMAL =        0x12,
   RET_CONDITION =     0x15,
+  RET_DIR_EXT =       0x1e, // From LaddieAlpha
 
   CMD_TSDOS_UNK_2 =   0x23,
-  CMD_TSDOS_UNK_1 =   0x31
+  CMD_UNKNOWN_48 =    0x30, // https://www.mail-archive.com/m100@lists.bitchin100.com/msg12129.html
+  CMD_TSDOS_UNK_1 =   0x31  // https://www.mail-archive.com/m100@lists.bitchin100.com/msg11244.html
 } command_t;
 
 typedef enum error_e {
@@ -408,7 +410,7 @@ typedef enum error_e {
   ERR_SEC_NUM2 =      0x4d,
   ERR_WRITE_PROTECT = 0x50, // writing to a locked file
   ERR_DISK_NOINIT =   0x5e,
-  ERR_DIR_FULL =      0x60, // command.tdd calls this disk full
+  ERR_DIR_FULL =      0x60, // command.tdd calls this disk full, as does the SW manual
   ERR_DISK_FULL =     0x61,
   ERR_FILE_LEN =      0x6e,
   ERR_NO_DISK =       0x70,
@@ -1212,6 +1214,11 @@ void notImplemented(void) {
   return_normal(ERR_SUCCESS);
 }
 
+//  https://www.mail-archive.com/m100@lists.bitchin100.com/msg11247.html
+void command_unknown(void) {
+  return_normal(ERR_SUCCESS);
+}
+
 void command_format(){  //Not implemented
   DEBUG_PRINTL(F("command_format()"));
   notImplemented();
@@ -1219,7 +1226,7 @@ void command_format(){  //Not implemented
 
 void command_status(){  //Drive status
   DEBUG_PRINTL(F("command_status()"));
-  notImplemented();
+  return_normal(ERR_SUCCESS);
 }
 
 void command_condition(){ //Not implemented
@@ -1463,6 +1470,8 @@ typedef enum cmdstate_s {
   FOUND_Z2,
   FOUND_CMD,
   FOUND_LEN,
+  FOUND_DATA,
+  FOUND_CHK,
   FOUND_MODE,
 } cmdstate_t;
 
@@ -1472,6 +1481,7 @@ void loop() {
   uint8_t i = 0;
   uint8_t data;
   uint8_t cmd = 0; // make the compiler happy
+  uint8_t chk;
 
   DEBUG_PRINTL(F("loop(): start"));
 
@@ -1493,6 +1503,8 @@ void loop() {
       #endif // ENABLE_SLEEP
       data = (uint8_t)CLIENT.read();
       #if DEBUG > 1
+        DEBUG_PRINTI((uint8_t)state, HEX);
+        DEBUG_PRINT(":");
         DEBUG_PRINTI((uint8_t)i, HEX);
         DEBUG_PRINT(" - ");
         DEBUG_PRINTI((uint8_t)data, HEX);
@@ -1518,17 +1530,29 @@ void loop() {
         break;
       case FOUND_Z2:
         cmd = data;
+        chk = data;
         state = FOUND_CMD;
         break;
       case FOUND_CMD:
         _length = data;
+        chk += data;
         i = 0;
-        state = FOUND_LEN;
+        if(_length)
+          state = FOUND_LEN;
+        else
+          state = FOUND_DATA;
         break;
       case FOUND_LEN:
-        if(i < _length)
+        if(i < _length) {
+          chk += data;
           _buffer[i++] = data;
-        else { // cmd is complete.  Execute
+        }
+        if(i == _length) {  // cmd is complete.  get checksum
+          state = FOUND_DATA;
+        }
+        break;
+      case FOUND_DATA: // got checksum.  Check and exec
+        if (chk ^ 0xff == data) {
           #if DEBUG > 1
             DEBUG_PRINT("T:"); //...the command type...
             DEBUG_PRINTI(cmd, HEX);
@@ -1548,10 +1572,18 @@ void loop() {
             case CMD_DMEREQ:    command_DMEReq(); break; // DME Command
             case CMD_CONDITION: command_condition(); break;
             case CMD_RENAME: command_rename(); break;
+            case CMD_TSDOS_UNK_1: command_unknown(); break;
             default: return_normal(ERR_PARM); break;  // Send a normal return with a parameter error if the command is not implemented
           }
-          state = IDLE;
+        } else {
+          #if DEBUG > 1
+            DEBUG_PRINT("Checksum Error: calc="); //...the command type...
+            DEBUG_PRINTI(chk ^ 0xff, HEX);
+            DEBUG_PRINT(", sent=");  //...and the command length.
+            DEBUG_PRINTI(data, HEX);
+          #endif
         }
+        state = IDLE;
         break;
       case FOUND_MODE:
         // 1 = operational mode
