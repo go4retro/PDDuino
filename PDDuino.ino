@@ -329,6 +329,8 @@ SdFat SD;
 
 #define JIM_MODS  // Just so I can find the next item when it is commented out.
 #define JIM_NEW_LOOP
+#define JIM_NEW_RETURN_REF
+
 
 File root;  //Root file for filesystem reference
 File entry; //Moving file entry for the emulator
@@ -369,8 +371,8 @@ typedef enum command_e {
   CMD_FORMAT =        0x06,
   CMD_STATUS =        0x07,
   CMD_DMEREQ =        0x08,
-  CMD_SEEK =          0x09,
-  CMD_TELL =          0x0a,
+  CMD_SEEK_EXT =      0x09,
+  CMD_TELL_EXT =      0x0a,
   CMD_SET_EXT =       0x0b,
   CMD_CONDITION =     0x0c,
   CMD_RENAME =        0x0d,
@@ -380,12 +382,14 @@ typedef enum command_e {
   RET_READ =          0x10,
   RET_DIRECTORY =     0x11,
   RET_NORMAL =        0x12,
+  RET_UNKNOWN_2 =     0x14,
   RET_CONDITION =     0x15,
   RET_DIR_EXT =       0x1e, // From LaddieAlpha
 
   CMD_TSDOS_UNK_2 =   0x23,
   CMD_UNKNOWN_48 =    0x30, // https://www.mail-archive.com/m100@lists.bitchin100.com/msg12129.html
-  CMD_TSDOS_UNK_1 =   0x31  // https://www.mail-archive.com/m100@lists.bitchin100.com/msg11244.html
+  CMD_TSDOS_UNK_1 =   0x31, // https://www.mail-archive.com/m100@lists.bitchin100.com/msg11244.html
+  RET_TSDOS_UNK_1 =   0x38
 } command_t;
 
 typedef enum error_e {
@@ -421,7 +425,9 @@ typedef enum openmode_e {
   OPEN_NONE =         0x00,
   OPEN_WRITE =        0x01,
   OPEN_APPEND =       0x02,
-  OPEN_READ =         0x03
+  OPEN_READ =         0x03,
+  OPEN_READ_WRITE =   0x04, // VirtualT defines.
+  OPEN_CREATE =       0x05, // LaddieAlpha defines.
 } openmode_t;
 
 typedef enum sysstate_e {
@@ -429,10 +435,11 @@ typedef enum sysstate_e {
   SYS_ENUM,
   SYS_REF,
   SYS_WRITE,
+  SYS_READ_WRITE,
   SYS_READ,
-  SYS_PUSH_FILE,
-  SYS_PULL_FILE,
-  SYS_PAUSED
+  //SYS_PUSH_FILE,  // LaddieAlpha defines, but no functionality
+  //SYS_PULL_FILE,
+  //SYS_PAUSED
 } sysstate_t;
 
 typedef enum enumtype_e {
@@ -749,13 +756,18 @@ void return_normal(error_t errorCode){ //Sends a normal return to the TPDD port 
   tpddSendChecksum(); //Checksum
 }
 
-void returnReference(const char *name, bool isDir, uint16_t size ) {
+void returnReference(const char *name, bool isDir, uint32_t size ) {
   uint8_t i, j;
 
   DEBUG_PRINTL(F("returnReference()"));
 
   tpddWrite(RET_DIRECTORY);    //Return type (reference)
-  tpddWrite(0x1C);    //Data size (1C)
+  // filename + attribute + length + free sector count
+  if(size > 65535) {
+    tpddWrite(FILENAME_SZ + 1 + 4 + 1);    //Data size (1E)
+  } else {
+    tpddWrite(FILENAME_SZ + 1 + 2 + 1);    //Data size (1C)
+  }
   if(name == NULL) {
     for(i = 0; i < FILENAME_SZ; i++)
       tpddWrite(0x00);  //Write the reference file name to the TPDD port
@@ -784,15 +796,25 @@ void returnReference(const char *name, bool isDir, uint16_t size ) {
       tpddWrite(0);  // pad out
     }
   }
-  tpddWrite(0);  //Attribute, unused
+  // other implementation send 'F' here:
+  //tpddWrite(0);  //Attribute, unused
+  tpddWrite((name == NULL ? '\0' : 'F'));
   tpddWrite((uint8_t)(size >> 8));  //File size most significant byte
-  tpddWrite((uint8_t)(size & 0xFF)); //File size least significant byte
-  tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
+  tpddWrite((uint8_t)(size)); //File size least significant byte
+  if(size > 65535) {
+    tpddWrite('P');  //Free sectors, SD card has more than we'll ever care about
+    //tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
+    tpddWrite((uint8_t)(size >> 24));  //File size most significant byte
+    tpddWrite((uint8_t)(size >> 16)); //File size next most significant byte
+  } else {
+    //tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
+    // Note: ts-dos only uses the value returned on the last dir entry.
+    // and that entry is often empty...
+    tpddWrite(0x9d);  //Free sectors, SD card has more than we'll ever care about
+  }
   tpddSendChecksum(); //Checksum
 
 }
-
-#define JIM_NEW_RETURN_REF
 
 void return_reference(){  //Sends a reference return to the TPDD port
 #ifdef JIM_NEW_RETURN_REF
@@ -1067,7 +1089,12 @@ void command_open(){  //Opens an entry for reading, writing, or appending
           entry.close();
           switch(_mode){
             case OPEN_WRITE:
-              entry = SD.open(directory, FILE_WRITE);
+              // bug: FILE_WRITE includes O_APPEND, so existing files would be opened
+              //      at end.
+              //entry = SD.open(directory, FILE_WRITE);
+
+              // open for write, position at beginning of file, create if needed
+              entry = SD.open(directory, O_CREAT | O_WRITE);
               _sysstate = SYS_WRITE;
               break;                // Write
             case OPEN_APPEND:
@@ -1076,9 +1103,13 @@ void command_open(){  //Opens an entry for reading, writing, or appending
               break;                // Append
             case OPEN_READ:
             default:
-              entry = SD.open(directory, FILE_READ);
+              entry = SD.open(directory, O_READ);
               _sysstate = SYS_READ;
               break;                // Read
+            case OPEN_READ_WRITE:   // LaddieAlpha extension
+              entry = SD.open(directory, O_CREAT | O_RDWR);
+              _sysstate = SYS_READ_WRITE;
+              break;
           }
           upDirectory();
         }
@@ -1100,8 +1131,8 @@ void command_open(){  //Opens an entry for reading, writing, or appending
 }
 
 /*
- * System State:  Technically, should only run from SYS_READ or SYS_WRITE, but
- *                we'll go ahead and be lenient.
+ * System State:  Technically, should only run from SYS_READ, SYS_WRITE, of
+ *                or SYS_READ_WRITE, but we'll go ahead and be lenient.
  */
 void command_close() {  // Closes the currently open entry
   DEBUG_PRINTL(F("command_close()"));
@@ -1112,11 +1143,12 @@ void command_close() {  // Closes the currently open entry
 }
 
 /*
- * System State: This can only run from SYS_READ, and goes to SYS_IDLE if error
+ * System State:  This can only run from SYS_READ or SYS_READ_WRITE,
+ *                and goes to SYS_IDLE if error
  */
 void command_read(){  //Read a block of data from the currently open entry
   DEBUG_PRINTL(F("command_read()"));
-  if(_sysstate == SYS_READ) {
+  if((_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
     SD_LED_ON
     byte bytesRead = entry.read(fileBuffer, FILE_BUFFER_SZ); //Try to pull 128 bytes from the file into the buffer
     SD_LED_OFF
@@ -1127,7 +1159,7 @@ void command_read(){  //Read a block of data from the currently open entry
     if(bytesRead > 0x00){  //Send the read return if there is data to be read
       tpddWrite(RET_READ);  //Return type
       tpddWrite(bytesRead); //Data length
-      tpddWriteBuf(fileBuffer,bytesRead);
+      tpddWriteBuf(fileBuffer, bytesRead);
       tpddSendChecksum();
     } else { //send a normal return with an end-of-file error if there is no data left to read
       return_normal(ERR_EOF);
@@ -1142,7 +1174,8 @@ void command_read(){  //Read a block of data from the currently open entry
 }
 
 /*
- * System State: This can only run from SYS_WRITE, and goes to SYS_IDLE if error
+ * System State:  This can only run from SYS_WRITE or SYS_READ_WRITE,
+ *                and goes to SYS_IDLE if error
  */
 void command_write(){ //Write a block of data from the command to the currently open entry
   int32_t len;
@@ -1151,7 +1184,7 @@ void command_write(){ //Write a block of data from the command to the currently 
   byte commandDataLength = dataBuffer[(byte)(tail+0x03)];
 #endif
   DEBUG_PRINTL(F("command_write()"));
-  if(_sysstate == SYS_WRITE) {
+  if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ_WRITE)) {
     SD_LED_ON
     #ifdef JIM_NEW_LOOP
       len = entry.write(_buffer, _length);
@@ -1214,11 +1247,6 @@ void notImplemented(void) {
   return_normal(ERR_SUCCESS);
 }
 
-//  https://www.mail-archive.com/m100@lists.bitchin100.com/msg11247.html
-void command_unknown(void) {
-  return_normal(ERR_SUCCESS);
-}
-
 void command_format(){  //Not implemented
   DEBUG_PRINTL(F("command_format()"));
   notImplemented();
@@ -1229,9 +1257,15 @@ void command_status(){  //Drive status
   return_normal(ERR_SUCCESS);
 }
 
-void command_condition(){ //Not implemented
+/*
+ * System State: This can run from any state, and does not alter state
+ */
+void command_condition(){
   DEBUG_PRINTL(F("command_condition()"));
-  notImplemented();
+  tpddWrite(RET_CONDITION);  //Return type (normal)
+  tpddWrite(0x01);  //Data size (1)
+  tpddWrite(ERR_SUCCESS); //Error code
+  tpddSendChecksum(); //Checksum
 }
 
 /*
@@ -1306,6 +1340,75 @@ void command_rename(){  //Renames the currently open entry
 }
 
 /*
+ * Extended Commands
+ */
+
+typedef enum seektype_e {
+  SEEKTYPE_SET = 1,
+  SEEKTYPE_CUR = 2,
+  SEEKTYPE_END = 3
+} seektype_t;
+
+#define SEEKTYPE_MAX          (SEEKTYPE_END + 1)
+
+#define OFFSET_SEEK_TYPE      0x00 // TODO check this
+
+void command_seek(void) {
+  uint32_t pos;
+
+  DEBUG_PRINTL(F("command_seek()"));
+  if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
+    if((_length == 5)
+        && (_buffer[OFFSET_SEEK_TYPE]) // > 0
+        && (_buffer[OFFSET_SEEK_TYPE] < SEEKTYPE_MAX)
+       ) {
+      // handle seek
+      pos = (_buffer[1]
+            | (_buffer[2] << 8)
+            | ((uint32_t)_buffer[3] << 16)
+            | ((uint32_t)_buffer[4] << 24)
+           );
+      switch(_buffer[OFFSET_SEEK_TYPE]) {
+      case SEEKTYPE_SET:
+        entry.seek(pos);
+        break;
+      case SEEKTYPE_CUR:
+        entry.seekCur(pos);
+        break;
+      case SEEKTYPE_END:
+        entry.seekEnd(pos);
+        break;
+      }
+      return_normal(ERR_SUCCESS);   // Send a normal return to the TPDD port with no error
+    } else {
+      // return error
+      return_normal(ERR_PARM);
+    }
+  } else {
+    return_normal(ERR_NO_NAME);     // no file opened for reading or writing.
+
+  }
+}
+
+
+void command_tell(void) {
+  uint32_t pos;
+
+  DEBUG_PRINTL(F("command_tell()"));
+  // Only tell if you have a file open
+  if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
+    pos = entry.curPosition();
+    tpddWrite((uint8_t)pos);
+    tpddWrite((uint8_t)(pos >> 8));
+    tpddWrite((uint8_t)(pos >> 16));
+    tpddWrite((uint8_t)(pos >> 24));
+    tpddSendChecksum();
+  } else {
+    return_normal(ERR_NO_NAME);     // no file opened for reading or writing.
+  }
+}
+
+/*
  *
  * TS-DOS DME Commands
  *
@@ -1335,6 +1438,33 @@ void command_DMEReq() {  //Send the dmeLabel
   tpddWrite(' ');
   tpddSendChecksum();
 }
+
+/*
+ * Unknown commands
+ */
+
+//  https://www.mail-archive.com/m100@lists.bitchin100.com/msg11247.html
+void command_unknown_1(void) {
+  DEBUG_PRINTL(F("command_unknown_1()"));
+  tpddWrite(RET_TSDOS_UNK_1);
+  tpddWrite(0x01);  //Data size (1)
+  tpddWrite(ERR_SUCCESS);
+  tpddSendChecksum();
+}
+
+void command_unknown_2(void) {
+  const uint8_t data[] = {0x41, 0x10, 0x01, 0x00, 0x50, 0x05, 0x00, 0x02,
+                          0x00, 0x28, 0x00, 0xE1, 0x00, 0x00, 0x00
+                         };
+
+
+  DEBUG_PRINTL(F("command_unknown_2()"));
+  tpddWrite(RET_UNKNOWN_2);
+  tpddWrite(sizeof(data));
+  tpddWriteBuf((uint8_t *)data, sizeof(data));
+  tpddSendChecksum();
+}
+
 
 /*
  *
@@ -1467,12 +1597,14 @@ typedef enum cmdstate_s {
   CMD_STARTED,
   CMD_COMPLETE,
   FOUND_Z,
-  FOUND_Z2,
+  FOUND_OPCODE,
   FOUND_CMD,
   FOUND_LEN,
   FOUND_DATA,
   FOUND_CHK,
   FOUND_MODE,
+  FOUND_MODE_DATA,
+  FOUND_R
 } cmdstate_t;
 
 void loop() {
@@ -1481,7 +1613,7 @@ void loop() {
   uint8_t i = 0;
   uint8_t data;
   uint8_t cmd = 0; // make the compiler happy
-  uint8_t chk;
+  uint8_t chk = 0;
 
   DEBUG_PRINTL(F("loop(): start"));
 
@@ -1496,11 +1628,6 @@ void loop() {
     // should check for a timeout...
     while(CLIENT.available()) {
       idleSince = millis();  // reset timer.
-      #if defined(ENABLE_SLEEP)
-       #if defined(SLEEP_DELAY)
-        idleSince = millis();
-       #endif // SLEEP_DELAY
-      #endif // ENABLE_SLEEP
       data = (uint8_t)CLIENT.read();
       #if DEBUG > 1
         DEBUG_PRINTI((uint8_t)state, HEX);
@@ -1514,45 +1641,63 @@ void loop() {
         }
         DEBUG_PRINTL("");
       #endif
-      switch (state) {
-      case IDLE:
-        if(data == 'Z')
-          state = FOUND_Z;
-        else if(data == 'M')
-          state = FOUND_MODE;
-        break;
-      case FOUND_Z:
+      // handle this one here, since if someone does ZM, the M should be handled
+      // as a new command, same with Za or ZR
+      if(state == FOUND_Z) {
         if(data == 'Z') {
-          state = FOUND_Z2;
-
+          state = FOUND_OPCODE;
         } else
           state = IDLE;
-        break;
-      case FOUND_Z2:
-        cmd = data;
-        chk = data;
-        state = FOUND_CMD;
-        break;
-      case FOUND_CMD:
-        _length = data;
-        chk += data;
-        i = 0;
-        if(_length)
-          state = FOUND_LEN;
-        else
-          state = FOUND_DATA;
-        break;
-      case FOUND_LEN:
-        if(i < _length) {
+      }
+      if(!((state == FOUND_OPCODE) && (data == 'Z'))) { // if the above did not match
+        switch (state) {
+        case IDLE:
+          switch(data) {
+          case 'Z':
+            state = FOUND_Z;
+            break;
+          case 'M':
+            state = FOUND_MODE;
+            break;
+          case 'R':
+            state = IDLE;  // should be FOUND_R;
+            break;
+          default:
+            //if(data >= 'a' && data <= 'z') {
+              // VirtualT goes into command line mode here...
+              // TODO This is where one would add the WifiModem stuff..
+            //}
+            break;
+          }
+          break;
+        case FOUND_Z:
+          // this is handled above.
+          break;
+        case FOUND_OPCODE:
+          cmd = data;
+          chk = data;
+          state = FOUND_CMD;
+          break;
+        case FOUND_CMD:
+          _length = data;
           chk += data;
-          _buffer[i++] = data;
-        }
-        if(i == _length) {  // cmd is complete.  get checksum
-          state = FOUND_DATA;
-        }
-        break;
-      case FOUND_DATA: // got checksum.  Check and exec
-        if (chk ^ 0xff == data) {
+          i = 0;
+          if(_length)
+            state = FOUND_LEN;
+          else
+            state = FOUND_DATA;
+          break;
+        case FOUND_LEN:
+          if(i < _length) {
+            chk += data;
+            _buffer[i++] = data;
+          }
+          if(i == _length) {  // cmd is complete.  get checksum
+            state = FOUND_DATA;
+          }
+          break;
+        case FOUND_DATA: // got checksum.  Check and exec
+          if ((chk ^ 0xff) == data) {
           #if DEBUG > 1
             DEBUG_PRINT("T:"); //...the command type...
             DEBUG_PRINTI(cmd, HEX);
@@ -1560,43 +1705,52 @@ void loop() {
             DEBUG_PRINTI(_length, HEX);
             DEBUG_PRINTL(DME ? 'D' : '.');
           #endif
-          switch(cmd){  // Select the command handler routine to jump to based on the command type
-            case CMD_REFERENCE: command_reference(); break;
-            case CMD_OPEN:      command_open(); break;
-            case CMD_CLOSE:     command_close(); break;
-            case CMD_READ:      command_read(); break;
-            case CMD_WRITE:     command_write(); break;
-            case CMD_DELETE:    command_delete(); break;
-            case CMD_FORMAT:    command_format(); break;
-            case CMD_STATUS:    command_status(); break;
-            case CMD_DMEREQ:    command_DMEReq(); break; // DME Command
-            case CMD_CONDITION: command_condition(); break;
-            case CMD_RENAME: command_rename(); break;
-            case CMD_TSDOS_UNK_1: command_unknown(); break;
-            default: return_normal(ERR_PARM); break;  // Send a normal return with a parameter error if the command is not implemented
-          }
-        } else {
-          #if DEBUG > 1
+            switch(cmd){  // Select the command handler routine to jump to based on the command type
+              case CMD_REFERENCE: command_reference(); break;
+              case CMD_OPEN:      command_open(); break;
+              case CMD_CLOSE:     command_close(); break;
+              case CMD_READ:      command_read(); break;
+              case CMD_WRITE:     command_write(); break;
+              case CMD_DELETE:    command_delete(); break;
+              case CMD_FORMAT:    command_format(); break;
+              case CMD_STATUS:    command_status(); break;
+              case CMD_DMEREQ:    command_DMEReq(); break; // DME Command
+              case CMD_CONDITION: command_condition(); break;
+              case CMD_RENAME: command_rename(); break;
+              case CMD_SEEK_EXT: command_seek(); break;
+              case CMD_TELL_EXT: command_tell(); break;
+              case CMD_TSDOS_UNK_1: command_unknown_1(); break;
+              case CMD_TSDOS_UNK_2: command_unknown_2(); break;
+              default: return_normal(ERR_PARM); break;  // Send a normal return with a parameter error if the command is not implemented
+            }
+          } else {
+            #if DEBUG > 1
             DEBUG_PRINT("Checksum Error: calc="); //...the command type...
             DEBUG_PRINTI(chk ^ 0xff, HEX);
             DEBUG_PRINT(", sent=");  //...and the command length.
             DEBUG_PRINTI(data, HEX);
           #endif
+            return_normal(ERR_ID_CRC);  // send back checksum error
+          }
+          state = IDLE;
+          break;
+        case FOUND_MODE:
+          // 1 = operational mode
+          // 0 = FDC emulation mode
+          // (ignore for now).
+          state = FOUND_MODE_DATA;
+          break;
+        case FOUND_MODE_DATA:
+          // eat the 0x0d that is sent after it.
+          _sysstate = SYS_IDLE;
+          state = IDLE;
+          break;
+        default:
+          // not sure how you'd get here, but...
+          _sysstate = SYS_IDLE;
+          state = IDLE;
+          break;
         }
-        state = IDLE;
-        break;
-      case FOUND_MODE:
-        // 1 = operational mode
-        // 0 = FDC emulation mode
-        // (ignore for now).
-        _sysstate = SYS_IDLE;
-        state = IDLE;
-        break;
-      default:
-        // not sure how you'd get here, but...
-        _sysstate = SYS_IDLE;
-        state = IDLE;
-        break;
       }
     }
   }
