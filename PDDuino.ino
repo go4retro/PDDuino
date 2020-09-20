@@ -40,22 +40,6 @@ extern SdFatSdioEX fs;
 extern SdFat fs;
 #endif
 
-#if !defined(SLEEP_DELAY)
-#define SLEEP_DELAY 0
-#endif
-
-#if defined(ENABLE_SLEEP)
- #if defined(USE_ALP)
-  #include <ArduinoLowPower.h>
- #else
-  #include <avr/sleep.h>
- #endif // USE_ALP
-#endif // ENABLE_SLEEP
-
-
-
-#define TOKEN_BASIC_END_OF_FILE 0x1A
-
 /*
  *
  * General misc. routines
@@ -91,44 +75,6 @@ void printDirectory(File dir, byte numTabs) {
 }
 #endif // DEBUG
 
-unsigned long _idleSince = millis();
-#if defined(ENABLE_SLEEP)
- #if !defined(USE_ALP)
-  const byte wakeInterrupt = digitalPinToInterrupt(WAKE_PIN);
- #endif // !USE_ALP
-
- #if defined(SLEEP_DELAY)
-  unsigned long now = _idleSince;
- #endif // SLEEP_DELAY
-
-void wakeNow (void) {
-}
-
-void sleepNow(void) {
- #if defined(SLEEP_DELAY)
-  now = millis();
-  if ((now - _idleSince) < SLEEP_DELAY) return;
-  _idleSince = now;
- #endif // SLEEP_DELAY
- #if defined(USE_ALP)
-  LowPower.attachInterruptWakeup(WAKE_PIN, wakeNow, CHANGE);
-  LowPower.sleep();
- #else
-  // if the debug console is enabled, then don't sleep deep enough to power off the usb port
-  #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-  set_sleep_mode(SLEEP_MODE_IDLE);
-  #else
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  #endif // DEBUG
-  DEBUG_LED_ON
-  attachInterrupt(wakeInterrupt,wakeNow,CHANGE);
-  sleep_mode();
-  detachInterrupt(wakeInterrupt);
- #endif // USE_ALP
-  DEBUG_LED_OFF
-}
-#endif // ENABLE_SLEEP
-
 void initCard (void) {
   File root;  //Root file for filesystem reference
 
@@ -156,7 +102,7 @@ void initCard (void) {
  #endif
 #endif  // USE_SDIO
       LOGD_P("Card Open");
-#if SD_LED
+#if LED_SD
       led_sd_off();
       delay (0x60);
       led_sd_on();
@@ -169,7 +115,7 @@ void initCard (void) {
       break;
     } else {
       LOGD_P("No SD card.");
-#if SD_LED
+#if LED_SD
       led_sd_off();
       delay(1000);
 #endif
@@ -214,27 +160,37 @@ void(* restart) (void) = 0;
 
 /* TPDD2-style bootstrap */
 void sendLoader(void) {
-  byte b = 0x00;
+  int b = 0x00;
+
 #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-  int c = 0;
+  uint32_t len;
+  uint32_t sent = 0;
 #endif // DEBUG
   File f = fs.open(LOADER_FILE);
 
   LOGD_P("%s() entry",__func__);
   if (f) {
     led_sd_on();
-    LOGD_P("Sending " LOADER_FILE " ");
+#if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
+    len = f.size();
+#endif
+    LOGD_P("Sending " LOADER_FILE ": %d bytes ", len);
       while (f.available()) {
         b = f.read();
-        CLIENT.write(b);
+        if(b >= 0) {
+          CLIENT.write(b);
+          sent++;
 #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-        if(++c>99) {
-          // TODO See if this can be made a little prettier
-         LOGD_P(".");
-         c = 0;
-        }
+          if((sent % 128) == 0) {
+            // TODO See if this can be made a little prettier
+           LOGD_P("%d%% complete", (uint8_t)((sent * 100) / len));
+          }
 #endif // DEBUG
-        delay(0x05);
+          delay(LOADER_SEND_DELAY);
+        } else { // error
+          LOGE_P(LOADER_FILE " send returned error %d", b);
+          break;
+        }
       }
     f.close();
     led_sd_off();
@@ -246,7 +202,7 @@ void sendLoader(void) {
     LOGD_P("Could not find " LOADER_FILE " ...");
   }
   LOGD_P("%s() exit",__func__);
-  restart(); // go back to normal TPDD emulation mode
+  //restart(); // go back to normal TPDD emulation mode
 }
 #endif // LOADER_FILE
 
@@ -262,10 +218,10 @@ void setup() {
   uint8_t i;
 
   led_sd_init();
-  PINMODE_DEBUG_LED_OUTPUT
+  led_debug_init();
   //pinMode(WAKE_PIN, INPUT_PULLUP);  // typical, but don't do on RX
   led_sd_off();
-  DEBUG_LED_OFF
+  led_debug_off();
   digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
 
   // DSR/DTR
@@ -281,9 +237,9 @@ void setup() {
 #if defined LOG_LEVEL && defined(LOGGER)
   LOGGER.begin(115200);
     while(!LOGGER){
-      DEBUG_LED_ON
+      led_debug_on();
       delay(0x20);
-      DEBUG_LED_OFF
+      led_debug_off();
       delay(0x200);
     }
   LOGGER.flush();

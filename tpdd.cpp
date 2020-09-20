@@ -10,8 +10,8 @@
 #include <stdint.h>
 #include "config.h"
 #include "Logger.h"
-
 #include "tpdd.h"
+#include "powermgmt.h"
 
 #if defined(USE_SDIO)
 SdFatSdioEX fs;

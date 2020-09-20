@@ -90,24 +90,26 @@
 
 #if defined(BOARD_DEFAULT)
   // User-defined platform details
-  #define LOGGER SERIAL_PORT_MONITOR      // where to send debug messages, if enabled. (Serial)
-  #define CLIENT SERIAL_PORT_HARDWARE_OPEN // what serial port is the TPDD client connected to (Serial1)
-  #define DTR_PIN                   5 // pin to output DTR, github.com/bkw777/MounT uses pin 5
-  #define DSR_PIN                   6 // pin to input DSR, github.com/bkw777/MounT uses pin6
-  #define SD_CS_PIN                 4 // sd card reader chip-select pin #, usually automatic
-  //#define SD_CD_PIN 7                    // sd card reader card-detect pin #, usually none
-  //#define DISABLE_CS 10               // Disable other SPI device on this pin, usully none, assume SD is only SPI device
-  //#define USE_SDIO                    // sd card reader is connected by SDIO instead of SPI (Teensy 3.5/3.6/4.1)
-  #define ENABLE_SLEEP                // sleepNow() while idle for power saving
-  #define WAKE_PIN                  0 // CLIENT RX pin#, interrupt is attached to wake from sleepNow()
-  //#define SLEEP_DELAY 5000            // Delay in ms before sleeping
-  //#define USE_ALP                     // Use ArduinoLowPower library for sleepNow(), otherwise use avr/sleep.h
-  void led_sd_init(void)            { pinMode(LED_BUILTIN,OUTPUT); }
-  void led_sd_on(void)              { digitalWrite(LED_BUILTIN,HIGH); }
-  void led_sd_off(void)             { digitalWrite(LED_BUILTIN,LOW); }
-  #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_BUILTIN,OUTPUT);
-  #define DEBUG_LED_ON              digitalWrite(LED_BUILTIN,HIGH);
-  #define DEBUG_LED_OFF             digitalWrite(LED_BUILTIN,LOW);
+  #define LOGGER                        SERIAL_PORT_MONITOR      // where to send debug messages, if enabled. (Serial)
+  #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN // what serial port is the TPDD client connected to (Serial1)
+  #define DTR_PIN                       5 // pin to output DTR, github.com/bkw777/MounT uses pin 5
+  #define DSR_PIN                       6 // pin to input DSR, github.com/bkw777/MounT uses pin6
+  #define SD_CS_PIN                     4 // sd card reader chip-select pin #, usually automatic
+  //#define SD_CD_PIN                     7   // sd card reader card-detect pin #, usually none
+  //#define DISABLE_CS                    10  // Disable other SPI device on this pin, usully none, assume SD is only SPI device
+  //#define USE_SDIO                      // sd card reader is connected by SDIO instead of SPI (Teensy 3.5/3.6/4.1)
+  #define ENABLE_SLEEP                    // sleepNow() while idle for power saving
+  #define WAKE_PIN                      0 // CLIENT RX pin#, interrupt is attached to wake from sleepNow()
+  //#define SLEEP_DELAY 5000              // Delay in ms before sleeping
+  //#define USE_ALP                       // Use ArduinoLowPower library for sleepNow(), otherwise use avr/sleep.h
+  #define LED_SD_ACT_PIN                LED_BUILTIN
+  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
+  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN,HIGH);
+  #define LED_SD_ACT_OFF                digitalWrite(LED_SD_ACT_PIN,LOW);
+  #define LED_DEBUG_PIN                 LED_BUILTIN
+  #define LED_DEBUG_INIT                DDRC |= _BV(LED_DEBUG_PIN);
+  #define LED_DEBUG_ON                  PORTC |= _BV(LED_DEBUG_PIN);
+  #define LED_DEBUG_OFF                 PORTC &= ~_BV(LED_DEBUG_PIN);
 
 // Teensy3.5, Teensy3.6
 // https://www.pjrc.com/store/teensy35.html
@@ -122,37 +124,38 @@
 //   if (!sd.exists("settings.txt")) { CPU_RESTART }
 //
 #elif defined(BOARD_TEENSY35) || defined(BOARD_TEENSY36)
-  #define LOGGER SERIAL_PORT_MONITOR
-  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
-  #define DTR_PIN 5
-  #define DSR_PIN 6
+  #define LOGGER                        SERIAL_PORT_MONITOR
+  #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
+  #define DTR_PIN                       5
+  #define DSR_PIN                       6
   //#define SD_CS_PIN SS
   //#define SD_CD_PIN 7
   //#define DISABLE_CS 10
   #define USE_SDIO
   #define ENABLE_SLEEP
-  #define WAKE_PIN 0
+  #define WAKE_PIN                      0
   //#define SLEEP_DELAY 5000
   //#define USE_ALP
   // Main LED: PB5
-  #define LED_SD_ACT_PIN            5
-  static void led_sd_init(void)     { DDRB |= _BV(LED_SD_ACT_PIN); }
-  static void led_sd_on(void)       { PORTB |= _BV(LED_SD_ACT_PIN); }
-  static void led_sd_off(void)      { PORTB &= ~_BV(LED_SD_ACT_PIN); }
+  #define LED_SD_ACT_PIN                5
+  #define LED_SD_ACT_INIT               DDRB |= _BV(LED_SD_ACT_PIN);
+  #define LED_SD_ACT_ON                 PORTB |= _BV(LED_SD_ACT_PIN);
+  #define LED_SD_ACT_OFF                PORTB &= ~_BV(LED_SD_ACT_PIN);
   // Main LED: PB5
-  #define PINMODE_DEBUG_LED_OUTPUT DDRB = DDRB |= 1UL << 5;
-  #define DEBUG_LED_ON PORTB |= _BV(5);
-  #define DEBUG_LED_OFF PORTB &= ~_BV(5);
+  #define LED_DEBUG_PIN                 5
+  #define LED_DEBUG_INIT                DDRC |= _BV(LED_DEBUG_PIN);
+  #define LED_DEBUG_ON                  PORTC |= _BV(LED_DEBUG_PIN);
+  #define LED_DEBUG_OFF                 PORTC &= ~_BV(LED_DEBUG_PIN);
 
 // Adafruit Feather 32u4 Adalogger
 // https://learn.adafruit.com/adafruit-feather-32u4-adalogger
 //
 #elif defined(BOARD_FEATHER32U4)
-  #define LOGGER SERIAL_PORT_MONITOR
-  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
-  #define DTR_PIN 5
-  #define DSR_PIN 6
-  #define SD_CS_PIN 4
+  #define LOGGER                        SERIAL_PORT_MONITOR
+  #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
+  #define DTR_PIN                       5
+  #define DSR_PIN                       6
+  #define SD_CS_PIN                     4
   //#define SD_CD_PIN 7
   //#define DISABLE_CS 10
   //#define USE_SDIO
@@ -161,133 +164,141 @@
   #define SLEEP_DELAY 5000          // Adalogger 32u4 needs a few seconds before sleeping
   //#define USE_ALP
   // Green LED near card reader: PB4
-  #define LED_SD_ACT_PIN            4
-  static void led_sd_init(void)     { DDRB |= _BV(LED_SD_ACT_PIN); }
-  static void led_sd_on(void)       { PORTB |= _BV(LED_SD_ACT_PIN); }
-  static void led_sd_off(void)      { PORTB &= ~_BV(LED_SD_ACT_PIN); }
+  #define LED_SD_ACT_PIN                4
+  #define LED_SD_ACT_INIT               DDRB |= _BV(LED_SD_ACT_PIN);
+  #define LED_SD_ACT_ON                 PORTB |= _BV(LED_SD_ACT_PIN);
+  #define LED_SD_ACT_OFF                PORTB &= ~_BV(LED_SD_ACT_PIN);
   // Main LED: PC7
-  #define PINMODE_DEBUG_LED_OUTPUT DDRC = DDRC |= 1UL << 7;
-  #define DEBUG_LED_ON PORTC |= _BV(7);
-  #define DEBUG_LED_OFF PORTC &= ~_BV(7);
+  #define LED_DEBUG_PIN                 7
+  #define LED_DEBUG_INIT                DDRC |= _BV(LED_DEBUG_PIN);
+  #define LED_DEBUG_ON                  PORTC |= _BV(LED_DEBUG_PIN);
+  #define LED_DEBUG_OFF                 PORTC &= ~_BV(LED_DEBUG_PIN);
 
 // Adafruit Feather M0 Adalogger
 // https://learn.adafruit.com/adafruit-feather-m0-adalogger
 //
 #elif defined(BOARD_FEATHERM0)
-  #define LOGGER SERIAL_PORT_MONITOR
-  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
-  #define DTR_PIN 5
-  #define DSR_PIN 6
-  #define SD_CS_PIN 4
-  //#define DISABLE_CS 10
+  #define LOGGER                        SERIAL_PORT_MONITOR
+  #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
+  #define DTR_PIN                       5
+  #define DSR_PIN                       6
+  #define SD_CS_PIN                     4
+  //#define DISABLE_CS                    10
   //#define USE_SDIO
   #define ENABLE_SLEEP
   #define WAKE_PIN 0
-  #define SLEEP_DELAY 250
+  #define SLEEP_DELAY                   250
   #define USE_ALP
   // Green LED near card reader: PA6 / pin 8
-  #define LED_SD_ACT_PIN            8
-  static void led_sd_init(void)     { pinMode(LED_SD_ACT_PIN,OUTPUT); }
-  static void led_sd_on(void)       { digitalWrite(LED_SD_ACT_PIN,HIGH); }
-  static void led_sd_off(void)      { digitalWrite(LED_SD_ACT_PIN,LOW); }
+  #define LED_SD_ACT_PIN                8
+  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
+  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN,HIGH);
+  #define LED_SD_ACT_OFF                digitalWrite(LED_SD_ACT_PIN,LOW);
   // Main LED: PA17
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
+  #define LED_DEBUG_PIN                 LED_BUILTIN
+  #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
+  #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
+  #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
 
 #elif defined(BOARD_UNO)
 #ifndef HAVE_HWSERIAL1
-  #define LOGGER                    mySerial
+  #define LOGGER                        mySerial
   #include <SoftwareSerial.h>
-  #define LOGGER_DECL               SoftwareSerial mySerial(7,8); // RX, TX;
+  #define LOGGER_DECL                   SoftwareSerial mySerial(7,8); // RX, TX;
 #else
-  #define LOGGER                    SERIAL_PORT_HARDWARE_OPEN
-  #define LOGGER                    SERIAL_PORT_HARDWARE_OPEN
+  #define LOGGER                        SERIAL_PORT_HARDWARE_OPEN
+  #define LOGGER                        SERIAL_PORT_HARDWARE_OPEN
 #endif
-  #define CLIENT                    SERIAL_PORT_MONITOR
-  #define DTR_PIN                   5
-  #define DSR_PIN                   6
-  #define SD_CS_PIN                 10
+  #define CLIENT                        SERIAL_PORT_MONITOR
+  #define DTR_PIN                       5
+  #define DSR_PIN                       6
+  #define SD_CS_PIN                     10
   // User-defined platform details
   //#define ENABLE_SLEEP
   //#define WAKE_PIN 0
   //#define SLEEP_DELAY 5000
   //#define USE_ALP
-  #define LED_SD_ACT_PIN            9
-  static void led_sd_init(void)     { pinMode(LED_SD_ACT_PIN, OUTPUT); }
-  static void led_sd_on(void)       { digitalWrite(LED_SD_ACT_PIN,HIGH); }
-  static void led_sd_off(void)      { digitalWrite(LED_SD_ACT_PIN,LOW); }
-  #define LED_DEBUG                 4
-  #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_DEBUG,OUTPUT);
-  #define DEBUG_LED_ON              digitalWrite(LED_DEBUG,HIGH);
-  #define DEBUG_LED_OFF             digitalWrite(LED_DEBUG,LOW);
+  #define LED_SD_ACT_PIN                9
+  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
+  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN,HIGH);
+  #define LED_SD_ACT_OFF                digitalWrite(LED_SD_ACT_PIN,LOW);
+  #define LED_DEBUG_PIN                 4
+  #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
+  #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
+  #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
 
 #elif defined(BOARD_MEGA)
-  #define LOGGER                    SERIAL_PORT_HARDWARE_OPEN
-  #define CLIENT                    SERIAL_PORT_MONITOR
-  #define DTR_PIN                   5
-  #define DSR_PIN                   6
-  #define SD_CS_PIN                 53
+  #define LOGGER                        SERIAL_PORT_HARDWARE_OPEN
+  #define CLIENT                        SERIAL_PORT_MONITOR
+  #define DTR_PIN                       5
+  #define DSR_PIN                       6
+  #define SD_CS_PIN                     53
   // User-defined platform details
   //#define ENABLE_SLEEP
   //#define WAKE_PIN 0
   //#define SLEEP_DELAY 5000
   //#define USE_ALP
-  #define LED_SD_ACT_PIN            9
-  static void led_sd_init(void)     { pinMode(LED_SD_ACT_PIN, OUTPUT); }
-  static void led_sd_on(void)       { digitalWrite(LED_SD_ACT_PIN,HIGH); }
-  static void led_sd_off(void)      { digitalWrite(LED_SD_ACT_PIN,LOW); }
-  #define LED_DEBUG                 4
-  #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_DEBUG,OUTPUT);
-  #define DEBUG_LED_ON              digitalWrite(LED_DEBUG,HIGH);
-  #define DEBUG_LED_OFF             digitalWrite(LED_DEBUG,LOW);
+  #define LED_SD_ACT_PIN                9
+  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
+  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN, HIGH);
+  #define LED_SD_ACT_OFF                digitalWrite(LED_SD_ACT_PIN, LOW);
+  #define LED_DEBUG_PIN                 4
+  #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
+  #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
+  #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
 
 // example to add a new board
 //#elif defined(BOARD_UNO)
 //  // User-defined platform details
-//  #define LOGGER SERIAL_PORT_MONITOR
-//  #define CLIENT SERIAL_PORT_HARDWARE_OPEN
-//  #define DTR_PIN 5
-//  #define DSR_PIN 6
-//  #define SD_CS_PIN 4
-//  //#define SD_CD_PIN 7
-//  //#define DISABLE_CS 10
+//  #define                               LOGGER SERIAL_PORT_MONITOR
+//  #define                               CLIENT SERIAL_PORT_HARDWARE_OPEN
+//  #define DTR_PIN                       5
+//  #define DSR_PIN                       6
+//  #define SD_CS_PIN                     4
+//  //#define SD_CD_PIN                   7
+//  //#define DISABLE_CS                  10
 //  //#define USE_SDIO
 //  #define ENABLE_SLEEP
-//  #define WAKE_PIN 0
-//  //#define SLEEP_DELAY 5000
+//  #define WAKE_PIN                      0
+//  //#define SLEEP_DELAY                 5000
 //  //#define USE_ALP
-//  #define PINMODE_SD_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
-//  void led_sd_on(void) { digitalWrite(LED_BUILTIN,HIGH); }
-//  void led_sd_off(void) { digitalWrite(LED_BUILTIN,LOW); }
-//  #define SD_LED_ON digitalWrite(LED_BUILTIN,HIGH);
-//  #define SD_LED_OFF digitalWrite(LED_BUILTIN,LOW);
-//  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
-//  #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
-//  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
+//  #define LED_SD_ACT_PIN                LED_BUILTIN
+//  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
+//  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN, HIGH);
+//  #define LED_SD_ACT_OFF                digitalWrite(LED_SD_ACT_PIN, LOW);
+// #define LED_DEBUG_PIN                  LED_BULTIN
+//  #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
+//  #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
+//  #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
 
 #endif // BOARD_*
 
-#if !defined(PINMODE_SD_LED_OUTPUT) || !defined(SD_LED_ON) || !defined(SD_LED_OFF)
-  #define PINMODE_SD_LED_OUTPUT
-  #define led_sd_on() do {} while(0)
-  #define led_sd_off() do {} while(0)
-  #define SD_LED_ON
-  #define SD_LED_OFF
+#if !defined(LED_SD_ACT_ON)  || !defined(LED_SD_ACT_ON) || !defined(LED_SD_ACT_OFF)
+  #define led_sd_init()                   do {} while(0)
+  #define led_sd_on()                     do {} while(0)
+  #define led_sd_off()                    do {} while(0)
   #define LED_SD 0
-  #define SD_LED 0
 #else
   #define LED_SD 1
-  #define SD_LED 1
+  static inline void led_sd_init(void)    { LED_SD_ACT_INIT }
+  static inline void led_sd_on(void)      { LED_SD_ACT_ON }
+  static inline void led_sd_off(void)     { LED_SD_ACT_OFF }
+
 #endif
 
-#if !defined(PINMODE_DEBUG_LED_OUTPUT)  || !defined(DEBUG_LED_ON) || !defined(DEBUG_LED_OFF)
-  #define PINMODE_DEBUG_LED_OUTPUT
-  #define led_debug_on() do {} while(0)
-  #define led_debug_off() do {} while(0)
-  #define DEBUG_LED_ON
-  #define DEBUG_LED_OFF
+#if !defined(LED_DEBUG_INIT)  || !defined(LED_DEBUG_ON) || !defined(LED_DEBUG_OFF)
+  #define led_debug_init()                do {} while(0)
+  #define led_debug_on()                  do {} while(0)
+  #define led_debug_off()                 do {} while(0)
+#else
+  static inline void led_debug_init(void) { LED_DEBUG_INIT }
+  static inline void led_debug_on(void)   { LED_DEBUG_ON }
+  static inline void led_debug_off(void)  { LED_DEBUG_OFF }
 #endif
+
+#define LOADER_SEND_DELAY                 5 // ms
+#define TOKEN_BASIC_END_OF_FILE           0x1A
+
 
 
 #endif /* CONFIG_H_ */
