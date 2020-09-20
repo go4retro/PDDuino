@@ -12,8 +12,12 @@
  * log activity to serial monitor port
  * Logger is set for 115200 no flow
  * LOG_NONE or undefined: disable serial console
- * LOG_DEBUG: enabled, least verbose
- * LOG_VERBOSE: more verbose
+ * LOG_ERROR:
+ * LOG_WARN:
+ * LOG_INFO: major items of note.
+ * LOG_DEBUG: some minor items
+ * LOG_VERBOSE: Everything
+ *
  * When disabled, the port itself is disabled, which frees up significant ram and cpu cycles on some hardware.
  * Example, on Teensy 3.5/3.6, with the port enabled at all, the sketch must be compiled to run the cpu at a minimum of 24mhz
  * but with the port disabled, the sketch can be compiled to run at only 2Mhz. (Tools -> CPU Speed).
@@ -88,22 +92,22 @@
   // User-defined platform details
   #define LOGGER SERIAL_PORT_MONITOR      // where to send debug messages, if enabled. (Serial)
   #define CLIENT SERIAL_PORT_HARDWARE_OPEN // what serial port is the TPDD client connected to (Serial1)
-  #define DTR_PIN 5                         // pin to output DTR, github.com/bkw777/MounT uses pin 5
-  #define DSR_PIN 6                        // pin to input DSR, github.com/bkw777/MounT uses pin6
-  #define SD_CS_PIN 4                      // sd card reader chip-select pin #, usually automatic
+  #define DTR_PIN                   5 // pin to output DTR, github.com/bkw777/MounT uses pin 5
+  #define DSR_PIN                   6 // pin to input DSR, github.com/bkw777/MounT uses pin6
+  #define SD_CS_PIN                 4 // sd card reader chip-select pin #, usually automatic
   //#define SD_CD_PIN 7                    // sd card reader card-detect pin #, usually none
   //#define DISABLE_CS 10               // Disable other SPI device on this pin, usully none, assume SD is only SPI device
   //#define USE_SDIO                    // sd card reader is connected by SDIO instead of SPI (Teensy 3.5/3.6/4.1)
-  #define ENABLE_SLEEP                  // sleepNow() while idle for power saving
-  #define WAKE_PIN 0                    // CLIENT RX pin#, interrupt is attached to wake from sleepNow()
+  #define ENABLE_SLEEP                // sleepNow() while idle for power saving
+  #define WAKE_PIN                  0 // CLIENT RX pin#, interrupt is attached to wake from sleepNow()
   //#define SLEEP_DELAY 5000            // Delay in ms before sleeping
   //#define USE_ALP                     // Use ArduinoLowPower library for sleepNow(), otherwise use avr/sleep.h
-  #define PINMODE_SD_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
-  #define SD_LED_ON digitalWrite(LED_BUILTIN,HIGH);
-  #define SD_LED_OFF digitalWrite(LED_BUILTIN,LOW);
-  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
-  #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
-  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
+  void led_sd_init(void)            { pinMode(LED_BUILTIN,OUTPUT); }
+  void led_sd_on(void)              { digitalWrite(LED_BUILTIN,HIGH); }
+  void led_sd_off(void)             { digitalWrite(LED_BUILTIN,LOW); }
+  #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_BUILTIN,OUTPUT);
+  #define DEBUG_LED_ON              digitalWrite(LED_BUILTIN,HIGH);
+  #define DEBUG_LED_OFF             digitalWrite(LED_BUILTIN,LOW);
 
 // Teensy3.5, Teensy3.6
 // https://www.pjrc.com/store/teensy35.html
@@ -131,9 +135,10 @@
   //#define SLEEP_DELAY 5000
   //#define USE_ALP
   // Main LED: PB5
-  #define PINMODE_SD_LED_OUTPUT DDRB = DDRB |= 1UL << 5;
-  #define SD_LED_ON PORTB |= _BV(5);
-  #define SD_LED_OFF PORTB &= ~_BV(5);
+  #define LED_SD_ACT_PIN            5
+  static void led_sd_init(void)     { DDRB |= _BV(LED_SD_ACT_PIN); }
+  static void led_sd_on(void)       { PORTB |= _BV(LED_SD_ACT_PIN); }
+  static void led_sd_off(void)      { PORTB &= ~_BV(LED_SD_ACT_PIN); }
   // Main LED: PB5
   #define PINMODE_DEBUG_LED_OUTPUT DDRB = DDRB |= 1UL << 5;
   #define DEBUG_LED_ON PORTB |= _BV(5);
@@ -156,9 +161,10 @@
   #define SLEEP_DELAY 5000          // Adalogger 32u4 needs a few seconds before sleeping
   //#define USE_ALP
   // Green LED near card reader: PB4
-  #define PINMODE_SD_LED_OUTPUT DDRB = DDRB |= 1UL << 4;
-  #define SD_LED_ON PORTB |= _BV(4);
-  #define SD_LED_OFF PORTB &= ~_BV(4);
+  #define LED_SD_ACT_PIN            4
+  static void led_sd_init(void)     { DDRB |= _BV(LED_SD_ACT_PIN); }
+  static void led_sd_on(void)       { PORTB |= _BV(LED_SD_ACT_PIN); }
+  static void led_sd_off(void)      { PORTB &= ~_BV(LED_SD_ACT_PIN); }
   // Main LED: PC7
   #define PINMODE_DEBUG_LED_OUTPUT DDRC = DDRC |= 1UL << 7;
   #define DEBUG_LED_ON PORTC |= _BV(7);
@@ -180,9 +186,10 @@
   #define SLEEP_DELAY 250
   #define USE_ALP
   // Green LED near card reader: PA6 / pin 8
-  #define PINMODE_SD_LED_OUTPUT pinMode(8,OUTPUT);
-  #define SD_LED_ON digitalWrite(8,HIGH);
-  #define SD_LED_OFF digitalWrite(8,LOW);
+  #define LED_SD_ACT_PIN            8
+  static void led_sd_init(void)     { pinMode(LED_SD_ACT_PIN,OUTPUT); }
+  static void led_sd_on(void)       { digitalWrite(LED_SD_ACT_PIN,HIGH); }
+  static void led_sd_off(void)      { digitalWrite(LED_SD_ACT_PIN,LOW); }
   // Main LED: PA17
   #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
   #define DEBUG_LED_ON digitalWrite(LED_BUILTIN,HIGH);
@@ -206,10 +213,10 @@
   //#define WAKE_PIN 0
   //#define SLEEP_DELAY 5000
   //#define USE_ALP
-  #define LED_SD_ACT                9
-  #define PINMODE_SD_LED_OUTPUT     pinMode(LED_SD_ACT, OUTPUT);
-  #define SD_LED_ON                 digitalWrite(LED_SD_ACT,HIGH);
-  #define SD_LED_OFF                digitalWrite(LED_SD_ACT,LOW);
+  #define LED_SD_ACT_PIN            9
+  static void led_sd_init(void)     { pinMode(LED_SD_ACT_PIN, OUTPUT); }
+  static void led_sd_on(void)       { digitalWrite(LED_SD_ACT_PIN,HIGH); }
+  static void led_sd_off(void)      { digitalWrite(LED_SD_ACT_PIN,LOW); }
   #define LED_DEBUG                 4
   #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_DEBUG,OUTPUT);
   #define DEBUG_LED_ON              digitalWrite(LED_DEBUG,HIGH);
@@ -226,10 +233,10 @@
   //#define WAKE_PIN 0
   //#define SLEEP_DELAY 5000
   //#define USE_ALP
-  #define LED_SD_ACT                9
-  #define PINMODE_SD_LED_OUTPUT     pinMode(LED_SD_ACT, OUTPUT);
-  #define SD_LED_ON                 digitalWrite(LED_SD_ACT,HIGH);
-  #define SD_LED_OFF                digitalWrite(LED_SD_ACT,LOW);
+  #define LED_SD_ACT_PIN            9
+  static void led_sd_init(void)     { pinMode(LED_SD_ACT_PIN, OUTPUT); }
+  static void led_sd_on(void)       { digitalWrite(LED_SD_ACT_PIN,HIGH); }
+  static void led_sd_off(void)      { digitalWrite(LED_SD_ACT_PIN,LOW); }
   #define LED_DEBUG                 4
   #define PINMODE_DEBUG_LED_OUTPUT  pinMode(LED_DEBUG,OUTPUT);
   #define DEBUG_LED_ON              digitalWrite(LED_DEBUG,HIGH);
@@ -251,6 +258,8 @@
 //  //#define SLEEP_DELAY 5000
 //  //#define USE_ALP
 //  #define PINMODE_SD_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
+//  void led_sd_on(void) { digitalWrite(LED_BUILTIN,HIGH); }
+//  void led_sd_off(void) { digitalWrite(LED_BUILTIN,LOW); }
 //  #define SD_LED_ON digitalWrite(LED_BUILTIN,HIGH);
 //  #define SD_LED_OFF digitalWrite(LED_BUILTIN,LOW);
 //  #define PINMODE_DEBUG_LED_OUTPUT pinMode(LED_BUILTIN,OUTPUT);
@@ -258,5 +267,27 @@
 //  #define DEBUG_LED_OFF digitalWrite(LED_BUILTIN,LOW);
 
 #endif // BOARD_*
+
+#if !defined(PINMODE_SD_LED_OUTPUT) || !defined(SD_LED_ON) || !defined(SD_LED_OFF)
+  #define PINMODE_SD_LED_OUTPUT
+  #define led_sd_on() do {} while(0)
+  #define led_sd_off() do {} while(0)
+  #define SD_LED_ON
+  #define SD_LED_OFF
+  #define LED_SD 0
+  #define SD_LED 0
+#else
+  #define LED_SD 1
+  #define SD_LED 1
+#endif
+
+#if !defined(PINMODE_DEBUG_LED_OUTPUT)  || !defined(DEBUG_LED_ON) || !defined(DEBUG_LED_OFF)
+  #define PINMODE_DEBUG_LED_OUTPUT
+  #define led_debug_on() do {} while(0)
+  #define led_debug_off() do {} while(0)
+  #define DEBUG_LED_ON
+  #define DEBUG_LED_OFF
+#endif
+
 
 #endif /* CONFIG_H_ */

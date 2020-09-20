@@ -21,7 +21,11 @@ va_list args;
 char ch;
 
   ch = (lvl < sizeof(levels) ? levels[lvl] : '?');
+#ifdef LOGGER_TIMESTAMP
   snprintf(buf, LOG_BUFSIZE,"%c (%lu) ", ch, millis());
+#else
+  snprintf(buf, LOG_BUFSIZE,"%c ", ch);
+#endif
   LOGGER.print(buf);
   va_start(args, fmt);
   vsnprintf(buf, LOG_BUFSIZE, fmt, args);
@@ -35,7 +39,11 @@ va_list args;
 char ch;
 
   ch = (lvl < sizeof(levels) ? levels[lvl] : '?');
+#ifdef LOGGER_TIMESTAMP
   snprintf(buf, LOG_BUFSIZE,"%c (%lu) ", ch, millis());
+#else
+  snprintf(buf, LOG_BUFSIZE,"%c ", ch);
+#endif
   LOGGER.print(buf);
   va_start(args, fmt);
   vsnprintf_P(buf, LOG_BUFSIZE, fmt, args);
