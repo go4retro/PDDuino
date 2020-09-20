@@ -32,9 +32,6 @@
 // 0.3.0 20180921 bkw - Teensy & Feather boards, CLIENT & CONSOLE, setLabel(), sleepNow()
 // 0.2   20180728 Jimmy Pettit original
 
-#include <BlockDriver.h>
-#include <FreeStack.h>
-#include <MinimumSerial.h>
 #if !defined(USE_SDIO)
 #include <SPI.h>
 #endif
@@ -52,11 +49,31 @@ extern SdFatSdioEX fs;
 extern SdFat fs;
 #endif
 
+#if defined(SD_CD_PIN)
+  const byte cdInterrupt = digitalPinToInterrupt(SD_CD_PIN);
+#endif // SD_CD_PIN
+
 /*
  *
  * General misc. routines
  *
  */
+
+  /* reboot */
+  // This hangs at boot if debug console is enabled. It seems to break the CONSOLE port on the way down,
+  // and then on the way back up, it sits in setup() waiting for the CONSOLE port.
+  // The fix is probaby to reorganize the sketch to avoid needing to restart:
+  // https://forum.arduino.cc/index.php?topic=381083.0
+  //void setup() { // leave empty }
+  //void loop()
+  //{
+  //  // ... initialize application here
+  //  while (// test application exit condition here )
+  //  {
+  //    // application loop code here
+  //  }
+  //}
+void(* restart) (void) = 0;
 
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
 void print_dir(File dir, byte numTabs) {
@@ -144,7 +161,7 @@ void init_card (void) {
   root = fs.open("/");
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
   LOGD_P("Directory:");
-  print_dir(root,0x00);
+  print_dir(root, 0);
   // The below takes FOREVER!
   //LOGV_P("%lu Bytes Free", fs.vol()->freeClusterCount() * fs.vol()->blocksPerCluster()/2);
 #endif
@@ -167,8 +184,6 @@ void init_card (void) {
  * To read DSR (from RS232 DTR), read GPIO pin 6.
  */
 
-/* reboot */
-void(* restart) (void) = 0;
 
 /* TPDD2-style bootstrap */
 void send_loader(void) {
@@ -206,7 +221,13 @@ void send_loader(void) {
       }
     f.close();
     led_sd_off();
+    CLIENT.flush();
     CLIENT.write(TOKEN_BASIC_END_OF_FILE);
+#if defined(BOARD_FEATHERM0)                // no idea why but it works
+    // TODO JLB  I'm worried about this.  Seems like a bug...
+    delay(250);                             // delay alone before 0x1A didn't work
+    CLIENT.write(TOKEN_BASIC_END_OF_FILE);  // needs the double-tap
+#endif // BOARD_FEATHERM0
     CLIENT.flush();
     //CLIENT.end();
     LOGD_P("DONE");

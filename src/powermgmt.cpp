@@ -32,16 +32,13 @@
   #include "config.h"
   #include "powermgmt.h"
 
-unsigned long _idleSince = millis();
-  #if !defined(USE_ALP)
-const byte wakeInterrupt = digitalPinToInterrupt(WAKE_PIN);
-  #endif // !USE_ALP
-
-  #if defined(SLEEP_DELAY)
-unsigned long _now = _idleSince;
-  #endif // SLEEP_DELAY
-
-
+#if defined(SLEEP_DELAY)
+ unsigned long _now = millis();
+ unsigned long _idleSince = now;
+#endif // SLEEP_DELAY
+#if !defined(USE_ALP)
+ const byte rxInterrupt = digitalPinToInterrupt(CLIENT_RX_PIN);
+#endif // !USE_ALP
 
 void wakeNow (void) {
 }
@@ -52,20 +49,27 @@ void sleepNow(void) {
   if ((_now - _idleSince) < SLEEP_DELAY) return;
   _idleSince = _now;
  #endif // SLEEP_DELAY
+ #if defined(DEBUG_SLEEP)
+  led_debug_on();
+ #endif
  #if defined(USE_ALP)
-  LowPower.attachInterruptWakeup(WAKE_PIN, wakeNow, CHANGE);
-  LowPower.sleep();
+  LowPower.attachInterruptWakeup(CLIENT_RX_PIN, wakeNow, CHANGE);
+ #if defined LOG_LEVEL
+  LowPower.idle();  // .idle() .sleep() .deepSleep()
+ #else
+  LowPower.sleep();  // .idle() .sleep() .deepSleep()
+ #endif
  #else
   // if the debug console is enabled, then don't sleep deep enough to power off the usb port
   #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-  set_sleep_mode(SLEEP_MODE_IDLE);
+  set_sleep_mode(SLEEP_MODE_STANDBY);  // power down breaks usb serial connection
   #else
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN); // lightest to deepest: _IDLE _ADC _PWR_SAVE _STANDBY _PWR_DOWN
   #endif // DEBUG
   DEBUG_LED_ON
-  attachInterrupt(wakeInterrupt,wakeNow,CHANGE);
+  attachInterrupt(rxInterrupt,wakeNow,CHANGE);
   sleep_mode();
-  detachInterrupt(wakeInterrupt);
+  detachInterrupt(rxInterrupt);
  #endif // USE_ALP
   DEBUG_LED_OFF
 }
