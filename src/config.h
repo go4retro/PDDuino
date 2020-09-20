@@ -112,11 +112,12 @@
   #define SD_CS_PIN                     4 // sd card reader chip-select pin #, usually automatic
   //#define SD_CD_PIN                     7   // sd card reader card-detect pin #, usually none
   //#define DISABLE_CS                    10  // Disable other SPI device on this pin, usully none, assume SD is only SPI device
+  //#define SD_SPI_MHZ 12               // override default SPI clock for SD card reader
   //#define USE_SDIO                      // sd card reader is connected by SDIO instead of SPI (Teensy 3.5/3.6/4.1)
   #define ENABLE_SLEEP                    // sleepNow() while idle for power saving
+  //#define USE_ALP                       // Use ArduinoLowPower library for sleepNow(), otherwise use avr/sleep.h
   #define WAKE_PIN                      0 // CLIENT RX pin#, interrupt is attached to wake from sleepNow()
   //#define SLEEP_DELAY 5000              // Delay in ms before sleeping
-  //#define USE_ALP                       // Use ArduinoLowPower library for sleepNow(), otherwise use avr/sleep.h
   #define LED_SD_ACT_PIN                LED_BUILTIN
   #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
   #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN,HIGH);
@@ -155,11 +156,12 @@ static inline void board_init(void) {
   //#define SD_CS_PIN SS
   //#define SD_CD_PIN 7
   //#define DISABLE_CS 10
+  //#define SD_SPI_MHZ 12
   #define USE_SDIO
   #define ENABLE_SLEEP
+ //#define USE_ALP
   #define WAKE_PIN                      0
   //#define SLEEP_DELAY 5000
-  //#define USE_ALP
   // Main LED: PB5
   #define LED_SD_ACT_PIN                5
   #define LED_SD_ACT_INIT               DDRB |= _BV(LED_SD_ACT_PIN);
@@ -192,11 +194,12 @@ static inline void board_init(void) {
   #define SD_CS_PIN                     4
   //#define SD_CD_PIN 7
   //#define DISABLE_CS 10
+  //#define SD_SPI_MHZ 12
   //#define USE_SDIO
   #define ENABLE_SLEEP
+//#define USE_ALP
   #define WAKE_PIN 0
   #define SLEEP_DELAY 5000          // Adalogger 32u4 needs a few seconds before sleeping
-  //#define USE_ALP
   // Green LED near card reader: PB4
   #define LED_SD_ACT_PIN                4
   #define LED_SD_ACT_INIT               DDRB |= _BV(LED_SD_ACT_PIN);
@@ -227,11 +230,12 @@ static inline void board_init(void) {
   #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
   #define SD_CS_PIN                     4
   //#define DISABLE_CS                    10
+  #define SD_SPI_MHZ 12  // https://github.com/adafruit/ArduinoCore-samd/pull/186
   //#define USE_SDIO
   #define ENABLE_SLEEP
+  #define USE_ALP
   #define WAKE_PIN 0
   #define SLEEP_DELAY                   250
-  #define USE_ALP
   // Green LED near card reader: PA6 / pin 8
   #define LED_SD_ACT_PIN                8
   #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
@@ -267,9 +271,9 @@ static inline void board_init(void) {
   #define SD_CS_PIN                     10
   // User-defined platform details
   //#define ENABLE_SLEEP
+  //#define USE_ALP
   //#define WAKE_PIN 0
   //#define SLEEP_DELAY 5000
-  //#define USE_ALP
   #define LED_SD_ACT_PIN                9
   #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
   #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN,HIGH);
@@ -297,9 +301,9 @@ static inline void board_init(void) {
   #define SD_CS_PIN                     53
   // User-defined platform details
   //#define ENABLE_SLEEP
+  //#define USE_ALP
   //#define WAKE_PIN 0
   //#define SLEEP_DELAY 5000
-  //#define USE_ALP
   #define LED_SD_ACT_PIN                9
   #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
   #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN, HIGH);
@@ -328,11 +332,12 @@ static inline void board_init(void) {
 //  #define SD_CS_PIN                     4
 //  //#define SD_CD_PIN                   7
 //  //#define DISABLE_CS                  10
+//  //#define SD_SPI_MHZ 12
 //  //#define USE_SDIO
 //  #define ENABLE_SLEEP
+//  //#define USE_ALP
 //  #define WAKE_PIN                      0
 //  //#define SLEEP_DELAY                 5000
-//  //#define USE_ALP
 //  #define LED_SD_ACT_PIN                LED_BUILTIN
 //  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
 //  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN, HIGH);

@@ -23,18 +23,15 @@
  */
 
 
-#define SKETCH_NAME __FILE__
-#define SKETCH_VERSION "0.4.1"
+#define APP_NAME      "PDDuino"
+#define APP_VERSION   0
+#define APP_RELEASE   4
+#define APP_REVISION  1
 // 0.4.1 20200913 bkw - more IDE-supplied macros to un-hardcode where possible, more debug output
 // 0.4.0 20200828 bkw - sendLoader()
 // 0.3.0 20180921 bkw - Teensy & Feather boards, CLIENT & CONSOLE, setLabel(), sleepNow()
 // 0.2   20180728 Jimmy Pettit original
 
-//
-// end of config section
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////
 #include <BlockDriver.h>
 #include <FreeStack.h>
 #include <MinimumSerial.h>
@@ -252,8 +249,7 @@ void setup() {
 
   LOGD_P("%s() entry",__func__);
 
-  LOGD_P("-----------[ " SKETCH_NAME " " SKETCH_VERSION " ]------------");
-  LOGD_P("BOARD_NAME: " BOARD_NAME);
+  LOGD_P("----- " APP_NAME " %d.%d.%d on board: " BOARD_NAME, APP_VERSION, APP_RELEASE, APP_REVISION);
 
   LOGD_P("DTR_PIN: %d", DTR_PIN);
   LOGD_P("DSR_PIN: %d", DSR_PIN);
