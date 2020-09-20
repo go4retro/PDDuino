@@ -29,7 +29,7 @@ This fork adds:<br>
 
 ## Requirements / Setup
 ### Software
-See [](Arduino_IDE_Setup.txt)
+See [Arduino_IDE_Setup.txt](Arduino_IDE_Setup.txt)
 
 ### Hardware
 * Arduino-compatible microcontroller board with at least one hardware serial port
