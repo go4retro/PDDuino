@@ -30,10 +30,6 @@
 #include "Logger.h"
 #include "tpdd.h"
 
-#ifndef LOGGER_DECL
-  #define LOGGER_DECL
-#endif
-
 #if defined(USE_SDIO)
 extern SdFatSdioEX fs;
 #else
