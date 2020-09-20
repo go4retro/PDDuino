@@ -19,42 +19,49 @@ Earlier stages:<br>
 PDDuino is based on [SD2TPDD](https://github.com/tangentdelta/SD2TPDD) by Jimmy Petit.  
 
 This fork adds:<br>
-* TPDD2-style bootstrapper (A way to install a [DOS](http://tandy.wiki/TPDD_client) onto the computer)<br>
-* Power saving sleep mode calls<br>
+* TPDD2-style bootstrapper (A way to install a [TPDD Client](http://tandy.wiki/TPDD_client) onto the computer)<br>
+* Power saving sleep mode<br>
 * Current working directory displayed in TS-DOS<br>
 * Disk-activity led<br>
 * Support for Teensy 3.5 and 3.6 SDIO sd-card reader hardware<br>
 * Support for Adafruit Feather 32u4 Adalogger<br>
-* Support for Adafruit Feather M0 Adalogger<br>
+* Support for Adafruit Feather M0 Adalogger (20200916 broken)<br>
 
-## Requirements
+## Requirements / Setup
+### Software
+See [](Arduino_IDE_Setup.txt)
+
 ### Hardware
-* Arduino-compatible microcontroller board with at least one hardware serial port<br>
-* SD card reader<br>
-* RS232 level shifter for the serial port going to the TPDD client (to the M100)
+* Arduino-compatible microcontroller board with at least one hardware serial port
+* SD card reader
+* RS-232 to TTL/CMOS level shifter
+* Serial cable
+* Battery or usb power source for the microcontroller board
 
-These boards have an sd-card reader already built-in, and the code has specific support for them:  
+These boards have a small form-factor, and sd-card reader built-in:  
   [Adafruit Feather 32u4 Adalogger](https://learn.adafruit.com/adafruit-feather-32u4-adalogger)<br>
-  [Adafruit Feather M0 Adalogger](https://learn.adafruit.com/adafruit-feather-m0-adalogger)<br>
+  [Adafruit Feather M0 Adalogger](https://learn.adafruit.com/adafruit-feather-m0-adalogger) (20200916 broken)<br>
   [Teensy 3.5](https://www.pjrc.com/store/teensy35.html)<br>
   [Teensy 3.6](https://www.pjrc.com/store/teensy36.html)<br>
-  (not yet tested/ported, way overkill)[Teensy 4.1](https://www.pjrc.com/store/teensy41.html)
+  [Teensy 4.1](https://www.pjrc.com/store/teensy41.html) (not yet tested)
 
-This adapter board provides a serial connection including the level-shifter:<br>
+This adapter takes the place of a serial cable, and includes the level-shifter:<br>
   [MounT](https://github.com/bkw777/MounT)
 
-Power source:<br>
+This adapter can power the microcontroller board from the M100:<br>
   [BCR-USB-Power adapter](http://www.github.com/bkw777/BCR_Breakout)
 
-The following below are NOT needed if using the MounT board above.  
-You would only need these for bread-boarding or building in a box attached by a cable.  
+**The following below are NOT needed if using the MounT adapter.  
+You would only need these for bread-boarding or building in a box attached by a cable.**
 
- RS-232&lt;--&gt;TTL level-shifter module:  
+ RS-232&lt;--&gt;TTL/CMOS level-shifter module:  
   [NulSom](https://www.amazon.com/dp/B00OPU2QJ4/)  
-  Male connector and DTE pinout like a PC  
+  Has a male connector and DTE pinout like a PC  
   Use the same special null-modem cable as for connecting a "Model T" to a PC.  
   Solder jumper wires on the back of the 9-pin connector to join pins 1, 4, and 6  
-  This short-circuits the DSR/DTR detection, which pacifies TS-DOS so it will run, but means you can't test the bootstrap function except by wiring up a fake DTR/DSR signal using a pulldown resistor to gnd and a momentary button to vcc/3v3 on gpio pin 6.
+  [DSR-DTR-DCD Wiring, top](https://photos.app.goo.gl/oBpAbAbCgE8yCJzm7)  
+  [DSR-DTR-DCD Wiring, bottom](https://photos.app.goo.gl/mj1SXce5fJnmZiyr6)  
+  This short-circuits the DSR/DTR detection, which pacifies TS-DOS so it will run, but means you can't test the bootstrap function except by wiring up a fake DTR/DSR signal using a pulldown resistor to gnd and a momentary button to vcc/3v3 on gpio pin 6.  
 
  RS-232 cable:  
   [PCCables 0103](https://www.pccables.com/products/00103.html)  
@@ -62,33 +69,8 @@ You would only need these for bread-boarding or building in a box attached by a 
 
  TODO: find a ttl-serial module that actually supports the dsr/dtr lines.  
   https://www.pololu.com/product/126   breadboard-friendly single row of pins  
-  https://www.amazon.com/dp/B0190WSINY/  needs jumper wires to a breadboard  
+  https://www.amazon.com/dp/B0190WSINY/   needs jumper wires to a breadboard  
   Female plug, DCE pinout, needs a different serial cable, or adapters.
-
-### Software
-* Arduino IDE<br>
-* For Teensy: Teensyduino<br>
-* For Adafruit Feather 32u4: Adafruit AVR Boards support<br>
-* For Adafruit Feather M0: Adafruit SAMD Boards support
-* SPI library<br>
-* SdFat library<br>
-* Arduino Low Power library<br>
-
-## Assembly
-### Hardware
-* [MounT](https://github.com/bkw777/MounT)<br>
-* [BCR-USB-Power adapter](https://github.com/bkw777/BCR_Breakout)
-
-### Software
-* Load the source file into the Arduino IDE  
-* Download the SPI and SdFat libraries from the library manager  
-* Change any #DEFINE options needed at the top.  
-  There are many configuration options in the form of #defines at the top of the file.  
-  The main one you need to set is PLATFORM, to select what type of board to build for. Several other settings automatically derive from that.  
-* Compile the code and upload it to the microcontroller  
-  You will need to consult your board's documentation to set up the Arduino IDE correctly to to program the board.  
-  This usually means installing one or more board support libraries, and selecting the board type from the tools menu.  
-  In the case of Teensy, you also should install "Teensyduino", and there are more options on the tools menu such as setting the cpu clock speed. You can underclock the teensy to save even more battery.
 
 ## Usage:
 ### Bootstrap Procedure
@@ -110,7 +92,7 @@ Note the two associated files ```TS-DOS.100.pre-install.txt``` and ```TS-DOS.100
 The Teensy or Feather should now have a steady slow blinking LED, indication it's waiting for an SD card.  
 Don't insert the SD card yet.
 
-1. In BASIC do ```RUN "COM:98N1E"``` and press Enter.
+1. In BASIC, type ```RUN "COM:98N1E"``` and press Enter.
 
 1. Insert the SD card.
 
@@ -123,16 +105,18 @@ Exit BASIC and run TS-DOS.BA from the main menu. You can delete the TMP.DO file.
 ### Ultimate ROM II TS-DOS loader
 If you plan on using Ultimate Rom II, it has a "TS-DOS" feature which works by loading TS-DOS into ram on the fly, from a file on disk.  
 The file must be named DOS100.CO, and be in the root directory of the media.  
-This file can be downloaded from <http://www.club100.org/nads/dos100.co>.
+This file can be downloaded from <http://www.club100.org/nads/dos100.co>, or,  
+a modified/updated version can be found here: <http://www.club100.org/memfiles/index.php?direction=0&order=&directory=Ken%20Pettit/NewDos>
 
 ### "Model T" serial port control lines
 At power-on the Model 100 rs232 port sets all data & control pins to -5v.  
 On RUN "COM:98N1E", pins 4 and 20 go to +5v.  
 
-## To-Do
-* Document the various Arduino IDE setup and config quirks needed for each board.
-
-## other To-Dos, or merely ideas
+## To-Dos, or merely ideas, not necessarily realistic
+* Change "PARENT.<>" to "..<>" if possible
+* https://www.arduinolibraries.info/libraries/double-reset-detector_generic
+* https://github.com/rocketscream/Low-Power  
+  simplify the sleep calls, same lib for both avr and samd21  
 * RTC (Teensy has built-in rtc)
 * play & record audio as virtual cassette (Teensy has built-in audio, and enough cpu & ram to use it)
 * Battery level (Adalogger has built-in voltage reference and adc, and a built-in lipo charger)
@@ -141,12 +125,15 @@ On RUN "COM:98N1E", pins 4 and 20 go to +5v.
 * FTP server/client access using an ESP8266
 
 ## BUGS/STATUS
+* 20200916 Feather M0 isn't working.  
+  Unknown why. It used to work.
+
 * Works with TS-DOS.
 
-* File transfers don't work with TpddTool.py .<br>
- This seems to be due to mis-matches in handling the space-padding in the filenames?
+* Doesn't work with TEENY. (hangs)
 
-* TEENY hangs.
+* File transfers don't work with TpddTool.py .<br>
+  Seems to be due to mis-matches in handling the space-padding in the filenames?
 
 * Some kind of working directory initial/default state issue, which affects Ultimate Rom II loading DOS100.CO on the fly.
 If you have DOS100.CO in ram, then UR-2 works all the time, because it will use that copy if available.  
