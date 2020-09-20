@@ -1,37 +1,45 @@
-Library Manager
+Install Arduino IDE:
+  https://www.arduino.cc/en/Main/Software "Download the Arduino IDE"
+
+Install libraries that all boards use:
 Tools -> Manage Libraries...
- SdFat
+  "SdFat"  (Bill Greiman, not the Adafruit fork, even if for the Adafruit boards)
 
-Boards Manager
-Tools -> Board -> Boards Manager...
-
+Board-specific one-time setups, and compile-time usage:
 
 Adafruit Feather 32u4
-https://learn.adafruit.com/adafruit-feather-32u4-adalogger/setup
-Tools -> Board -> Adafruit Boards -> Adafruit Feather 32u4
-#define BOARD Adalogger_32u4
+install:
+  https://learn.adafruit.com/adafruit-feather-32u4-adalogger/setup
+use:
+  Tools -> Board -> Adafruit Boards -> Adafruit Feather 32u4
 
 Adafruit Feather M0
-https://learn.adafruit.com/adafruit-feather-m0-basic-proto/setup
-Tools -> Board -> Adafruit SAMD (32-bits ARM Cortex-M0+ and Cortex-M4) Boards -> Adafruit Feather M0
-#define BOARD Adalogger_M0
+install:
+  https://learn.adafruit.com/adafruit-feather-m0-basic-proto/setup
+  Tools -> Manage Libraries... -> "Arduino Low Power"
+use:
+  Tools -> Board -> Adafruit SAMD (32-bits ARM Cortex-M0+ and Cortex-M4) Boards -> Adafruit Feather M0
 
-Teensy 3.5  (MK64FX512)
-https://www.pjrc.com/teensy/td_download.html
-Tools -> Board -> Teenyduino -> Teensy 3.5
-Tools -> CPU Speed -> 2MHz (max battery, no debug) or >=24MHz (enable debug)
-#define BOARD Teensy_35
+Teensy 3.5
+install:
+  https://www.pjrc.com/teensy/td_download.html
+use:
+  Tools -> Board -> Teenyduino -> Teensy 3.5
+for normal use:
+  Tools -> CPU Speed -> 2MHz
+  Tools -> Optimize -> "Fastest with LTO"
+for debugging:
+  Tools -> CPU Speed -> 24MHz or greater
+  Tools -> Optimize -> any
 
-Teensy 3.6  (MK66FX1M0)
-https://www.pjrc.com/teensy/td_download.html
-Tools -> Board -> Teenyduino -> Teensy 3.6
-Tools -> CPU Speed -> 2MHz (max battery, no usb/debug console) or >=24MHz (enable usb/debug console)
-Tools -> Optimize -> "Fastest with LTO" (doesn't really matter, the cpu and ram is overkill for the job)
-#define BOARD Teensy_36
-
-
-
-pending ideas
-Arduino Low Power - wrapper for sleep calls
-DoubleResetDetector_Generic - trigger bootstrap (instead of the AVR bootloader) by pressing the reset button instead of the RUN-then-power-then-insert-sd dance.
-
+Teensy 3.6
+install:
+  https://www.pjrc.com/teensy/td_download.html
+use:
+  Tools -> Board -> Teenyduino -> Teensy 3.6
+for normal use:
+  Tools -> CPU Speed -> 2MHz
+  Tools -> Optimize -> "Fastest with LTO"
+for debugging:
+  Tools -> CPU Speed -> 24MHz or greater
+  Tools -> Optimize -> any
