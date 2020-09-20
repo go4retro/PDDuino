@@ -54,7 +54,7 @@ void sleepNow(void) {
  #endif
  #if defined(USE_ALP)
   LowPower.attachInterruptWakeup(CLIENT_RX_PIN, wakeNow, CHANGE);
- #if defined LOG_LEVEL
+ #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
   LowPower.idle();  // .idle() .sleep() .deepSleep()
  #else
   LowPower.sleep();  // .idle() .sleep() .deepSleep()
@@ -62,7 +62,7 @@ void sleepNow(void) {
  #else
   // if the debug console is enabled, then don't sleep deep enough to power off the usb port
   #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-  set_sleep_mode(SLEEP_MODE_STANDBY);  // power down breaks usb serial connection
+  set_sleep_mode(SLEEP_MODE_IDLE);  // power down breaks usb serial connection
   #else
   set_sleep_mode(SLEEP_MODE_PWR_DOWN); // lightest to deepest: _IDLE _ADC _PWR_SAVE _STANDBY _PWR_DOWN
   #endif // DEBUG
