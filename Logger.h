@@ -25,6 +25,9 @@
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_ERROR
 void LOG(uint8_t lvl, const char *fmt, ...);
 void LOG_P(uint8_t lvl, const char *fmt, ...);
+void LOG_INIT(void);
+#else
+#define LOG_INIT()            do {} while(0)
 #endif
 
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_ERROR

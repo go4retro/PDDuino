@@ -92,8 +92,6 @@
   // User-defined platform details
   #define LOGGER                        SERIAL_PORT_MONITOR      // where to send debug messages, if enabled. (Serial)
   #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN // what serial port is the TPDD client connected to (Serial1)
-  #define DTR_PIN                       5 // pin to output DTR, github.com/bkw777/MounT uses pin 5
-  #define DSR_PIN                       6 // pin to input DSR, github.com/bkw777/MounT uses pin6
   #define SD_CS_PIN                     4 // sd card reader chip-select pin #, usually automatic
   //#define SD_CD_PIN                     7   // sd card reader card-detect pin #, usually none
   //#define DISABLE_CS                    10  // Disable other SPI device on this pin, usully none, assume SD is only SPI device
@@ -110,6 +108,13 @@
   #define LED_DEBUG_INIT                DDRC |= _BV(LED_DEBUG_PIN);
   #define LED_DEBUG_ON                  PORTC |= _BV(LED_DEBUG_PIN);
   #define LED_DEBUG_OFF                 PORTC &= ~_BV(LED_DEBUG_PIN);
+  #define DTR_PIN                       5 // pin to output DTR, github.com/bkw777/MounT uses pin 5
+  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+  #define DSR_PIN                       6 // pin to input DSR, github.com/bkw777/MounT uses pin6
+  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
 // Teensy3.5, Teensy3.6
 // https://www.pjrc.com/store/teensy35.html
@@ -126,8 +131,6 @@
 #elif defined(BOARD_TEENSY35) || defined(BOARD_TEENSY36)
   #define LOGGER                        SERIAL_PORT_MONITOR
   #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
-  #define DTR_PIN                       5
-  #define DSR_PIN                       6
   //#define SD_CS_PIN SS
   //#define SD_CD_PIN 7
   //#define DISABLE_CS 10
@@ -146,6 +149,13 @@
   #define LED_DEBUG_INIT                DDRC |= _BV(LED_DEBUG_PIN);
   #define LED_DEBUG_ON                  PORTC |= _BV(LED_DEBUG_PIN);
   #define LED_DEBUG_OFF                 PORTC &= ~_BV(LED_DEBUG_PIN);
+  #define DTR_PIN                       5
+  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+  #define DSR_PIN                       6
+  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
 // Adafruit Feather 32u4 Adalogger
 // https://learn.adafruit.com/adafruit-feather-32u4-adalogger
@@ -153,8 +163,6 @@
 #elif defined(BOARD_FEATHER32U4)
   #define LOGGER                        SERIAL_PORT_MONITOR
   #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
-  #define DTR_PIN                       5
-  #define DSR_PIN                       6
   #define SD_CS_PIN                     4
   //#define SD_CD_PIN 7
   //#define DISABLE_CS 10
@@ -173,6 +181,13 @@
   #define LED_DEBUG_INIT                DDRC |= _BV(LED_DEBUG_PIN);
   #define LED_DEBUG_ON                  PORTC |= _BV(LED_DEBUG_PIN);
   #define LED_DEBUG_OFF                 PORTC &= ~_BV(LED_DEBUG_PIN);
+  #define DTR_PIN                       5
+  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+  #define DSR_PIN                       6
+  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
 // Adafruit Feather M0 Adalogger
 // https://learn.adafruit.com/adafruit-feather-m0-adalogger
@@ -180,8 +195,6 @@
 #elif defined(BOARD_FEATHERM0)
   #define LOGGER                        SERIAL_PORT_MONITOR
   #define CLIENT                        SERIAL_PORT_HARDWARE_OPEN
-  #define DTR_PIN                       5
-  #define DSR_PIN                       6
   #define SD_CS_PIN                     4
   //#define DISABLE_CS                    10
   //#define USE_SDIO
@@ -199,6 +212,13 @@
   #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
   #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
   #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
+  #define DTR_PIN                       5
+  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+  #define DSR_PIN                       6
+  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
 #elif defined(BOARD_UNO)
 #ifndef HAVE_HWSERIAL1
@@ -210,8 +230,6 @@
   #define LOGGER                        SERIAL_PORT_HARDWARE_OPEN
 #endif
   #define CLIENT                        SERIAL_PORT_MONITOR
-  #define DTR_PIN                       5
-  #define DSR_PIN                       6
   #define SD_CS_PIN                     10
   // User-defined platform details
   //#define ENABLE_SLEEP
@@ -226,6 +244,13 @@
   #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
   #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
   #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
+  #define DTR_PIN                       5
+  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+  #define DSR_PIN                       6
+  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
 #elif defined(BOARD_MEGA)
   #define LOGGER                        SERIAL_PORT_HARDWARE_OPEN
@@ -246,14 +271,20 @@
   #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
   #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
   #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
+  #define DTR_PIN                       5
+  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+  #define DSR_PIN                       6
+  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
+
 
 // example to add a new board
 //#elif defined(BOARD_UNO)
 //  // User-defined platform details
 //  #define                               LOGGER SERIAL_PORT_MONITOR
 //  #define                               CLIENT SERIAL_PORT_HARDWARE_OPEN
-//  #define DTR_PIN                       5
-//  #define DSR_PIN                       6
 //  #define SD_CS_PIN                     4
 //  //#define SD_CD_PIN                   7
 //  //#define DISABLE_CS                  10
@@ -266,10 +297,20 @@
 //  #define LED_SD_ACT_INIT               pinMode(LED_SD_ACT_PIN, OUTPUT);
 //  #define LED_SD_ACT_ON                 digitalWrite(LED_SD_ACT_PIN, HIGH);
 //  #define LED_SD_ACT_OFF                digitalWrite(LED_SD_ACT_PIN, LOW);
-// #define LED_DEBUG_PIN                  LED_BULTIN
+//  #define LED_DEBUG_PIN                 LED_BULTIN
 //  #define LED_DEBUG_INIT                pinMode(LED_DEBUG_PIN, OUTPUT);
 //  #define LED_DEBUG_ON                  digitalWrite(LED_DEBUG_PIN, HIGH);
 //  #define LED_DEBUG_OFF                 digitalWrite(LED_DEBUG_PIN, LOW);
+//  #define DTR_PIN                       5
+//  #define DTR_PIN_INIT                  pinMode(DTR_PIN, OUTPUT);
+//  #define DTR_PIN_HI                    digitalWrite(DTR_PIN,HIGH);
+//  #define DTR_PIN_LO                    digitalWrite(DTR_PIN,LOW);
+//  #define DSR_PIN                       6
+//  #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
+//  #define DSR_PIN_HIZ                   digitalWrite(DSR_PIN,HIGH);
+//  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
+
+
 
 #endif // BOARD_*
 
@@ -299,6 +340,27 @@
 #define LOADER_SEND_DELAY                 5 // ms
 #define TOKEN_BASIC_END_OF_FILE           0x1A
 
+#ifdef DTR_PIN
+  static inline void dtr_init(void)       {
+                                            DTR_PIN_INIT
+                                            DTR_PIN_HI    // tell client we're not ready
+                                          }
+static inline void dtr_ready(void)        { DTR_PIN_LO }
+static inline void dtr_not_ready(void)    { DTR_PIN_HI }
+#else
+  #define DTR_PIN                         -1
+  #define dtr_init()                      do {} while(0)
+#endif // DTR_PIN
 
+#ifdef DSR_PIN
+static inline void dsr_init(void)         {
+                                            DTR_PIN_INIT
+                                          }
+static inline bool dsr_is_ready(void)     { return DSR_PIN_IN }
+#else
+  #define DSR_PIN                         -1
+  #define dsr_init()                      do {} while(0)
+  #define dsr_is_ready()                  {0} // always return 0
+#endif // DSR_PIN
 
 #endif /* CONFIG_H_ */

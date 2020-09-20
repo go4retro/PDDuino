@@ -222,28 +222,15 @@ void setup() {
   //pinMode(WAKE_PIN, INPUT_PULLUP);  // typical, but don't do on RX
   led_sd_off();
   led_debug_off();
+  // we should move the below to a board_init();;;
   digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
 
   // DSR/DTR
-#ifdef DTR_PIN
-  pinMode(DTR_PIN, OUTPUT);
-  digitalWrite(DTR_PIN,HIGH);  // tell client we're not ready
-#endif // DTR_PIN
-#ifdef DSR_PIN
-  pinMode(DSR_PIN, INPUT_PULLUP);
-#endif // DSR_PIN
+  dtr_init();
+  dsr_init();
 
 // if debug console enabled, blink led and wait for console to be attached before proceeding
-#if defined LOG_LEVEL && defined(LOGGER)
-  LOGGER.begin(115200);
-    while(!LOGGER){
-      led_debug_on();
-      delay(0x20);
-      led_debug_off();
-      delay(0x200);
-    }
-  LOGGER.flush();
-#endif
+  LOG_INIT();
 
 
   CLIENT.begin(19200);
@@ -254,23 +241,13 @@ void setup() {
   LOGD_P("-----------[ " SKETCH_NAME " " SKETCH_VERSION " ]------------");
   LOGD_P("BOARD_NAME: " BOARD_NAME);
 
-#ifdef DTR_PIN
-  i = DTR_PIN;
-#else
-  i = 0;
-#endif
-  LOGD_P("DTR_PIN: %d", i);
-#ifdef DSR_PIN
-  i = DSR_PIN;
-#else
-  i = 0;
-#endif
-  LOGD_P("DSR_PIN: %d", i);
+  LOGD_P("DTR_PIN: %d", DTR_PIN);
+  LOGD_P("DSR_PIN: %d", DSR_PIN);
 #ifdef LOADER_FILE
   LOGD_P("DOS Loader File: %s", LOADER_FILE);
 #endif
 
-#if defined(DSR_PIN) && defined(LOADER_FILE)
+#if DSR_PIN > -1 && defined(LOADER_FILE)
   char state[] = "enabled";
 #else
   char state[] = "disabled";
@@ -298,15 +275,13 @@ void setup() {
 
   initCard();
 
-#if defined(DTR_PIN)
-  digitalWrite(DTR_PIN,LOW); // tell client we're ready
-#endif // DTR_PIN
+  dtr_ready(); // tell client we're ready
 
   // TPDD2-style automatic bootstrap.
   // If client is open already at power-on,
   // then send LOADER.BA instead of going into main loop()
-#if defined(DSR_PIN) && defined(LOADER_FILE)
-  if(!digitalRead(DSR_PIN)) {
+#if DSR_PIN > -1 && defined(LOADER_FILE)
+  if(dsr_is_ready()) {
     LOGD_P("Client is asserting DSR. Doing sendLoader().");
     sendLoader();
   } else {

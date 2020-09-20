@@ -136,8 +136,16 @@ static void send_buffer(uint8_t *data, uint16_t len) {
 }
 
 static void send_chksum(void) {  //Outputs the checksum to the TPDD port and clears the checksum
-  CLIENT.write(checksum ^ 0xFF);
-  checksum = 0x00;
+  uint8_t chk = checksum ^ 0xff;
+  CLIENT.write(chk);
+  LOGV_P("O:%2.2X", chk);
+  checksum = 0;
+}
+
+static void send_dir_suffix(void) {
+  send_byte('.');   //Tack the expected ".<>" to the end of the name
+  send_byte('<');
+  send_byte('>');
 }
 
 
@@ -162,25 +170,25 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
   uint8_t i, j;
 
   LOGD_P("%s() entry",__func__);
+  LOGI_P("N:'%s':D%d-%d", name, isDir, size);
   send_byte(RET_DIRECTORY);    //Return type (reference)
   // filename + attribute + length + free sector count
-  if(size > 65535) {
+#ifdef ENABLE_TPDD_EXTENSIONS
+  if(size > 65535)
     send_byte(FILENAME_SZ + 1 + 4 + 1);    //Data size (1E)
-  } else {
+  else
+#endif
     send_byte(FILENAME_SZ + 1 + 2 + 1);    //Data size (1C)
-  }
   if(name == NULL) {
     for(i = 0; i < FILENAME_SZ; i++)
       send_byte(0x00);  //Write the reference file name to the TPDD port
   } else {
-    if(isDir && DME) { // handle dirname.
+    if(isDir && DME) {  // handle dirname.
       for(i = 0; (i < 6) && (name[i] != 0); i++)
         send_byte(name[i]);
       for(;i < 6; i++)
         send_byte(' '); // pad out the dir
-      send_byte('.');  //Tack the expected ".<>" to the end of the name
-      send_byte('<');
-      send_byte('>');
+      send_dir_suffix();
       j = 9;
     } else {
       for(i = 0; (i < 6) && (name[i] != '.'); i++) {
@@ -194,7 +202,7 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
       }
     }
     for(; j < FILENAME_SZ; j++) {
-      send_byte(0);  // pad out
+      send_byte('\0');  // pad out
     }
   }
   // other implementation send 'F' here:
@@ -202,17 +210,18 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
   send_byte((name == NULL ? '\0' : 'F'));
   send_byte((uint8_t)(size >> 8));  //File size most significant byte
   send_byte((uint8_t)(size)); //File size least significant byte
+#ifdef ENABLE_TPDD_EXTENSIONS
   if(size > 65535) {
     send_byte('P');  //Free sectors, SD card has more than we'll ever care about
     //tpddWrite(0x80);  //Free sectors, SD card has more than we'll ever care about
     send_byte((uint8_t)(size >> 24));  //File size most significant byte
     send_byte((uint8_t)(size >> 16)); //File size next most significant byte
-  } else {
+  } else
+#endif
     //send_byte(0x80);  //Free sectors, SD card has more than we'll ever care about
     // Note: ts-dos only uses the value returned on the last dir entry.
     // and that entry is often empty...
     send_byte(0x9d);  //Free sectors, SD card has more than we'll ever care about
-  }
   send_chksum(); //Checksum
 
   LOGD_P("%s() exit",__func__);
@@ -224,7 +233,7 @@ static void send_normal_ref(void) {  //Sends a reference return to the TPDD port
   entry.getName(tempRefFileName,FILENAME_SZ);  //Save the current file entry's name to the reference file name buffer
   send_ref(tempRefFileName, entry.isDirectory(), entry.fileSize());
 
-  LOGD_P("R:Ref");
+  LOGI_P("R:Ref");
   LOGD_P("%s() exit",__func__);
 }
 
@@ -233,7 +242,7 @@ static void send_blank_ref(void) {  //Sends a blank reference return to the TPDD
   LOGD_P("%s() entry",__func__);
   entry.getName(tempRefFileName,FILENAME_SZ);  //Save the current file entry's name to the reference file name buffer
   send_ref(NULL, false, 0);
-  LOGD_P("R:BRef");
+  LOGI_P("R:BRef");
   LOGD_P("%s() exit",__func__);
 }
 
@@ -241,6 +250,7 @@ static void send_parent_ref(void) {
 
   LOGD_P("%s() entry",__func__);
   send_ref("PARENT", true, 0);
+  LOGI_P("R:PRef");
   LOGD_P("%s() exit",__func__);
 }
 
@@ -384,14 +394,14 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
   if(_sysstate == SYS_REF) {
     entry.close();
 
-    if(DME && strcmp(refFileNameNoDir, "PARENT") == 0x00) { //If DME mode is enabled and the reference is for the "PARENT" directory
+    if(DME && strcmp(refFileNameNoDir, "PARENT") == 0) { //If DME mode is enabled and the reference is for the "PARENT" directory
       remove_subdir();  //The top-most entry in the directory buffer is taken away
       directoryDepth--; //and the directory depth index is decremented
     } else {
       append_dir(refFileNameNoDir);  //Push the reference name onto the directory buffer
       led_sd_on();
   //    if(DME && (byte)strstr(refFileName, ".<>") != 0x00 && !fs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
-      if(DME && strstr(refFileName, ".<>") != 0x00 && !fs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+      if(DME && strstr(refFileName, ".<>") != 0 && !fs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
         fs.mkdir(directory);  //create the directory
         remove_subdir();
       } else {
@@ -421,10 +431,12 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
               entry = fs.open(directory, O_READ);
               _sysstate = SYS_READ;
               break;                // Read
-            case OPEN_READ_WRITE:   // LaddieAlpha extension
+#ifdef ENABLE_TPDD_EXTENSIONS
+            case OPEN_READ_WRITE:   // LaddieAlpha/VirtuaT extension
               entry = fs.open(directory, O_CREAT | O_RDWR);
               _sysstate = SYS_READ_WRITE;
               break;
+#endif
           }
           remove_subdir();
         }
@@ -644,7 +656,7 @@ static void req_rename(){  //Renames the currently open entry
 /*
  * Extended Commands
  */
-
+#ifdef ENABLE_TPDD_EXTENSIONS
 static void req_seek(void) {
   uint32_t pos;
 
@@ -701,6 +713,7 @@ static void req_tell(void) {
   }
   LOGD_P("%s() exit",__func__);
 }
+#endif
 
 /*
  *
@@ -722,14 +735,12 @@ static void req_dme_label() {  //Send the dmeLabel
    */
   DME = true;
   // prepend "/" to the root dir label just because my janky-ass set_label() assumes it
-  if (directoryDepth>0x00) set_label(directory); else set_label("/SD:   ");
+  if (directoryDepth > 0) set_label(directory); else set_label("/SD:   ");
   send_byte(RET_NORMAL);
   send_byte(0x0B);
   send_byte(0x20);
   for (byte i=0x00 ; i<0x06 ; i++) send_byte(dmeLabel[i]);
-  send_byte('.');
-  send_byte('<');
-  send_byte('>');
+  send_dir_suffix();
   send_byte(' ');
   send_chksum();
   LOGD_P("%s() exit",__func__);
@@ -739,6 +750,7 @@ static void req_dme_label() {  //Send the dmeLabel
  * Unknown commands
  */
 
+#ifdef ENABLE_TPDD_EXTENSIONS
 //  https://www.mail-archive.com/m100@lists.bitchin100.com/msg11247.html
 static void req_unknown_1(void) {
 
@@ -763,6 +775,7 @@ static void req_unknown_2(void) {
   send_chksum();
   LOGD_P("%s() exit",__func__);
 }
+#endif
 
 void tpdd_scan(void) {
   cmdstate_t state = IDLE;
@@ -774,6 +787,7 @@ void tpdd_scan(void) {
 
 
   LOGD_P("%s() entry",__func__);
+  dtr_ready();
   while(true) {
   #if defined(ENABLE_SLEEP)
     sleepNow();
@@ -857,10 +871,12 @@ void tpdd_scan(void) {
               case CMD_DMEREQ:      req_dme_label(); break; // DME Command
               case CMD_CONDITION:   req_condition(); break;
               case CMD_RENAME:      req_rename(); break;
+#ifdef ENABLE_TPDD_EXTENSIONS
               case CMD_SEEK_EXT:    req_seek(); break;
               case CMD_TELL_EXT:    req_tell(); break;
               case CMD_TSDOS_UNK_1: req_unknown_1(); break;
               case CMD_TSDOS_UNK_2: req_unknown_2(); break;
+#endif
               default:              send_ret_normal(ERR_PARM); break;  // Send a normal return with a parameter error if the command is not implemented
             }
           } else {

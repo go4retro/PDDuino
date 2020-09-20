@@ -51,5 +51,16 @@ char ch;
   LOGGER.println(buf);
 }
 
+void LOG_INIT(void) {
+  LOGGER.begin(115200);
+    while(!LOGGER){
+      led_debug_on();
+      delay(0x20);
+      led_debug_off();
+      delay(0x200);
+    }
+  LOGGER.flush();
+}
+
 #endif
 
