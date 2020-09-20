@@ -133,6 +133,10 @@
   #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
   #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
+static inline void board_init(void) {
+   digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
+}
+
 // Teensy3.5, Teensy3.6
 // https://www.pjrc.com/store/teensy35.html
 // https://www.pjrc.com/store/teensy36.html
@@ -174,6 +178,11 @@
   #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
   #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
+static inline void board_init(void) {
+  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
+}
+
+
 // Adafruit Feather 32u4 Adalogger
 // https://learn.adafruit.com/adafruit-feather-32u4-adalogger
 //
@@ -206,6 +215,10 @@
   #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
   #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
+static inline void board_init(void) {
+  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
+}
+
 // Adafruit Feather M0 Adalogger
 // https://learn.adafruit.com/adafruit-feather-m0-adalogger
 //
@@ -236,6 +249,10 @@
   #define DSR_PIN                       6
   #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
   #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
+
+static inline void board_init(void) {
+  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
+}
 
 #elif defined(BOARD_UNO)
 #ifndef HAVE_HWSERIAL1
@@ -269,6 +286,9 @@
   #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
   #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
+static inline void board_init(void) {
+}
+
 #elif defined(BOARD_MEGA)
   #define LOGGER                        SERIAL_PORT_HARDWARE_OPEN
   #define CLIENT                        SERIAL_PORT_MONITOR
@@ -296,6 +316,9 @@
   #define DSR_PIN_INIT                  pinMode(DSR_PIN, INPUT_PULLUP);
   #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
+static inline void board_init(void) {
+  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
+}
 
 // example to add a new board
 //#elif defined(BOARD_UNO)
@@ -327,6 +350,9 @@
 //  #define DSR_PIN_HIZ                   digitalWrite(DSR_PIN,HIGH);
 //  #define DSR_PIN_IN                    !digitalRead(DSR_PIN);
 
+//static inline void board_init(void) {
+//  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
+//}
 
 
 #endif // BOARD_*

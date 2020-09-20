@@ -62,7 +62,7 @@ extern SdFat fs;
  */
 
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
-void printDirectory(File dir, byte numTabs) {
+void print_dir(File dir, byte numTabs) {
   char fileName[FILENAME_SZ] = "";
   char buffer[20];
 
@@ -79,7 +79,7 @@ void printDirectory(File dir, byte numTabs) {
       buffer[i] = '\0';
       if (entry.isDirectory()) {
         LOGD_P("(--------) %s%s/", buffer, fileName);
-        printDirectory(entry, numTabs + 0x01);
+        print_dir(entry, numTabs + 0x01);
       } else {
         LOGD_P("(%8.8lu) %s%s", entry.fileSize(), buffer, fileName);
       }
@@ -90,7 +90,7 @@ void printDirectory(File dir, byte numTabs) {
 }
 #endif // DEBUG
 
-void initCard (void) {
+void init_card (void) {
   File root;  //Root file for filesystem reference
 
   LOGD_P("%s() entry",__func__);
@@ -147,7 +147,7 @@ void initCard (void) {
   root = fs.open("/");
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
   LOGD_P("Directory:");
-  printDirectory(root,0x00);
+  print_dir(root,0x00);
   // The below takes FOREVER!
   //LOGV_P("%lu Bytes Free", fs.vol()->freeClusterCount() * fs.vol()->blocksPerCluster()/2);
 #endif
@@ -174,7 +174,7 @@ void initCard (void) {
 void(* restart) (void) = 0;
 
 /* TPDD2-style bootstrap */
-void sendLoader(void) {
+void send_loader(void) {
   int b = 0x00;
 
 #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
@@ -211,7 +211,7 @@ void sendLoader(void) {
     led_sd_off();
     CLIENT.write(TOKEN_BASIC_END_OF_FILE);
     CLIENT.flush();
-    CLIENT.end();
+    //CLIENT.end();
     LOGD_P("DONE");
   } else {
     LOGD_P("Could not find " LOADER_FILE " ...");
@@ -231,20 +231,19 @@ void sendLoader(void) {
 
 void setup() {
   uint8_t i;
+  board_init();
 
   led_sd_init();
   led_debug_init();
   //pinMode(WAKE_PIN, INPUT_PULLUP);  // typical, but don't do on RX
   led_sd_off();
   led_debug_off();
-  // we should move the below to a board_init();;;
-  digitalWrite(LED_BUILTIN,LOW);  // turn standard main led off, besides SD and DEBUG LED macros
 
   // DSR/DTR
   dtr_init();
   dsr_init();
 
-// if debug console enabled, blink led and wait for console to be attached before proceeding
+  // if debug console enabled, blink led and wait for console to be attached before proceeding
   LOG_INIT();
 
 
@@ -288,7 +287,7 @@ void setup() {
     LOGV_P("Using SD chip select pin: %d", i);
 #endif  // !USE_SDIO
 
-  initCard();
+  init_card();
 
   dtr_ready(); // tell client we're ready
 
@@ -298,7 +297,7 @@ void setup() {
 #if DSR_PIN > -1 && defined(LOADER_FILE)
   if(dsr_is_ready()) {
     LOGD_P("Client is asserting DSR. Doing sendLoader().");
-    sendLoader();
+    send_loader();
   } else {
     LOGD_P("Client is not asserting DSR. Doing loop().");
   }
