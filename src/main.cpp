@@ -253,9 +253,14 @@ void setup() {
 
   led_sd_init();
   led_debug_init();
-  //pinMode(WAKE_PIN, INPUT_PULLUP);  // typical, but don't do on RX
   led_sd_off();
   led_debug_off();
+
+  // interrupt pins
+  // pinMode(CLIENT_RX_PIN, INPUT_PULLUP);  // don't do on a HardwareSerial uart pin
+#if defined(SD_CD_PIN)
+  pinMode(SD_CD_PIN,INPUT_PULLUP);  // card-detect
+#endif // SD_CD_PIN
 
   // DSR/DTR
   dtr_init();
@@ -274,16 +279,38 @@ void setup() {
 
   LOGD_P("DTR_PIN: %d", DTR_PIN);
   LOGD_P("DSR_PIN: %d", DSR_PIN);
-#ifdef LOADER_FILE
-  LOGD_P("DOS Loader File: %s", LOADER_FILE);
-#endif
 
 #if DSR_PIN > -1 && defined(LOADER_FILE)
-  char state[] = "enabled";
+ #define LOADER_STATE "enabled, " LOADER_FILE
 #else
-  char state[] = "disabled";
+ #define LOADER_STATE "disabled"
 #endif // DSR_PIN && LOADER_FILE
-  LOGD_P("sendLoader(): %s", state);
+  LOGD_P("sendLoader(): " LOADER_STATE);
+
+#if defined(ENABLE_SLEEP)
+  LOGD_P("sleep: enabled, delay:" SLEEP_DELAY " ms, "
+ #if defined(USE_ALP)
+  "ArduinoLowPower.h"
+ #else
+  "avr/sleep.h"
+ #endif // USE_ALP
+  );
+#else
+  LOGD_P("sleep: disabled");
+#endif // ENABLE_SLEEP
+
+  LOGD_P("Card-Detect: "
+#if defined(SD_CD_PIN)
+  "enabled, pin:"
+  SD_CD_PIN
+  DEBUG_PRINT(F(", intr:"
+  DEBUG_PRINT(cdInterrupt
+  ", state: "
+  digitalRead(SD_CD_PIN)
+#else
+  "not enabled"
+#endif // SD_CD_PIN
+  );
 
 #if defined(USE_SDIO)
     LOGV_P("Using SDIO");
@@ -306,6 +333,16 @@ void setup() {
 
   init_card();
 
+  // If the card is ejected, immediately restart, so that we:
+  //   go off-line (DTR_PIN)
+  //   wait for a card to re-appear
+  //   open the new card
+  //   finally go back on-line.
+  // This comes after initCard(), so that while ejected, we wait in initCard() rather than in a boot loop.
+  #if defined(SD_CD_PIN)
+    attachInterrupt(cdInterrupt, restart, LOW);
+  #endif
+
   dtr_ready(); // tell client we're ready
 
   // TPDD2-style automatic bootstrap.
@@ -313,10 +350,10 @@ void setup() {
   // then send LOADER.BA instead of going into main loop()
 #if DSR_PIN > -1 && defined(LOADER_FILE)
   if(dsr_is_ready()) {
-    LOGD_P("Client is asserting DSR. Doing sendLoader().");
+    LOGD_P("DSR: LOW. Doing sendLoader().");
     send_loader();
   } else {
-    LOGD_P("Client is not asserting DSR. Doing loop().");
+    LOGD_P("DSR HIGH. Doing loop().");
   }
 #endif // DSR_PIN && LOADER_FILE
   LOGD_P("%s() exit",__func__);

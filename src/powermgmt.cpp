@@ -32,20 +32,19 @@
   #include "config.h"
   #include "powermgmt.h"
 
-#if defined(SLEEP_DELAY)
- unsigned long _now = millis();
- unsigned long _idleSince = now;
-#endif // SLEEP_DELAY
-#if !defined(USE_ALP)
- const byte rxInterrupt = digitalPinToInterrupt(CLIENT_RX_PIN);
-#endif // !USE_ALP
+ #if defined(SLEEP_DELAY)
+  unsigned long _now = millis();
+  unsigned long _idleSince = now;
+ #endif // SLEEP_DELAY
+ #if !defined(USE_ALP)
+  const byte rxInterrupt = digitalPinToInterrupt(CLIENT_RX_PIN);
+ #endif // !USE_ALP
 
 void wakeNow (void) {
 }
 
 void sleepNow(void) {
- #if SLEEP_DELAY > 0
-  _now = millis();
+ #if defined(SLEEP_DELAY)  // no-op until SLEEP_DELAY expires  _now = millis();
   if ((_now - _idleSince) < SLEEP_DELAY) return;
   _idleSince = _now;
  #endif // SLEEP_DELAY
@@ -53,7 +52,7 @@ void sleepNow(void) {
   led_debug_on();
  #endif
  #if defined(USE_ALP)
-  LowPower.attachInterruptWakeup(CLIENT_RX_PIN, wakeNow, CHANGE);
+  LowPower.attachInterruptWakeup(CLIENT_RX_PIN, wakeNow, LOW);
  #if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
   LowPower.idle();  // .idle() .sleep() .deepSleep()
  #else
@@ -66,15 +65,15 @@ void sleepNow(void) {
   #else
   set_sleep_mode(SLEEP_MODE_PWR_DOWN); // lightest to deepest: _IDLE _ADC _PWR_SAVE _STANDBY _PWR_DOWN
   #endif // DEBUG
-  DEBUG_LED_ON
-  attachInterrupt(rxInterrupt,wakeNow,CHANGE);
+  led_debug_on();
+  attachInterrupt(rxInterrupt,wakeNow,LOW); // uart RX/TX rest high
   sleep_mode();
   detachInterrupt(rxInterrupt);
  #endif // USE_ALP
-  DEBUG_LED_OFF
+#ifdef DEBUG_SLEEP
+  led_debug_off();
+#endif
 }
-#else
-#define SLEEP_DELAY 0
 #endif
 
 

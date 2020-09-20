@@ -25,7 +25,18 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// Debugging settings
+
 /*
+ * Don't try to enable DEBUG and SLEEP at the same time.
+ * Traffic on the usb console seems to be triggering the interrup to wake up, at least on 32u4
+ * This behavior is probably different for every different board.
+ * Debug sleep just with the led. (def DEBUG_LED and DEBUG_SLEEP, undef DEBUG)
+ * Everything seems to be working as desired with DEBUG disabled.
+ * Eject the card and the SD_LED shows that we rebooted and are waiting in initCard() again.
+ * Insert a card and it inits, and 5 seconds later the DEBUG_LED comes on and stays on.
+ * Request a directory listing in TS-DOS and the led goes out, and the directory listing works, and 5 seconds later the led comes back on.
+ *
  * log activity to serial monitor port
  * Logger is set for 115200 no flow
  * LOG_NONE or undefined: disable serial console
@@ -35,9 +46,9 @@
  * LOG_DEBUG: some minor items
  * LOG_VERBOSE: Everything
  *
- * When disabled, the port itself is disabled, which frees up significant ram and cpu cycles on some hardware.
- * Example, on Teensy 3.5/3.6, with the port enabled at all, the sketch must be compiled to run the cpu at a minimum of 24mhz
- * but with the port disabled, the sketch can be compiled to run at only 2Mhz. (Tools -> CPU Speed).
+ * When disabled, the port itself is disabled, which frees up ram and cpu on some hardware.
+ * On Teensy 3.5/3.6, the cpu must run at 24 MHz or more to enable the usb serial console.
+ * Without the usb console, the sketch can run at the lowest setting, only 2 MHz. (Tools -> CPU Speed).
  * Logging will also be disabled if the selected BOARD_* section below doesn't define any LOGGER port.
  */
 
