@@ -25,6 +25,11 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#ifdef ARDUINO
+#include <Arduino.h>
+#endif
+
+
 // Debugging settings
 
 /*

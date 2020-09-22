@@ -23,44 +23,40 @@
  */
 
 
-#include <SdFat.h>
 #include <stdint.h>
 #include "config.h"
-#include "Logger.h"
-#include "tpdd.h"
+#include "vfs.h"
+#include "logger.h"
 #include "powermgmt.h"
 
-#if defined(USE_SDIO)
-SdFatSdioEX fs;
-#else
-SdFat fs;
-#endif
+#include "tpdd.h"
 
-  static byte checksum = 0x00;  //Global variable for checksum calculation
+extern VFS _vfs;
 
-  static bool DME = false; //TS-DOS DME mode flag
+static byte checksum = 0;  //Global variable for checksum calculation
+static bool DME = false; //TS-DOS DME mode flag
 
-  static uint8_t _buffer[DATA_BUFFER_SZ]; //Data buffer for commands
-  static uint8_t _length;
+static uint8_t _buffer[DATA_BUFFER_SZ]; //Data buffer for commands
+static uint8_t _length;
 
-  static byte fileBuffer[FILE_BUFFER_SZ]; //Data buffer for file reading
+static byte fileBuffer[FILE_BUFFER_SZ]; //Data buffer for file reading
 
-  static char refFileName[FILENAME_SZ] = "";  //Reference file name for emulator
-  static char refFileNameNoDir[FILENAME_SZ] = ""; //Reference file name for emulator with no ".<>" if directory
-  static char tempRefFileName[FILENAME_SZ] = ""; //Second reference file name for renaming
-  static byte directoryBlock = 0x00; //Current directory block for directory listing
-  static char directory[DIRECTORY_SZ] = "/";
-  static byte directoryDepth = 0x00;
-  static char tempDirectory[DIRECTORY_SZ] = "/";
-  static char dmeLabel[0x07] = "";  // 6 chars + NULL
+static char refFileName[FILENAME_SZ] = "";  //Reference file name for emulator
+static char refFileNameNoDir[FILENAME_SZ] = ""; //Reference file name for emulator with no ".<>" if directory
+static char tempRefFileName[FILENAME_SZ] = ""; //Second reference file name for renaming
+static byte directoryBlock = 0x00; //Current directory block for directory listing
+static char directory[DIRECTORY_SZ] = "/";
+static byte directoryDepth = 0x00;
+static char tempDirectory[DIRECTORY_SZ] = "/";
+static char dmeLabel[0x07] = "";  // 6 chars + NULL
 
-  static sysstate_t _sysstate = SYS_IDLE;
+static sysstate_t _sysstate = SYS_IDLE;
 
-  static openmode_t _mode = OPEN_NONE;
+static openmode_t _mode = OPEN_NONE;
 
-  static File entry; //Moving file entry for the emulator
-  static File tempEntry; //Temporary entry for moving files
-  static File root;  //Root file for filesystem reference
+static VFile entry; //Moving file entry for the emulator
+static VFile tempEntry; //Temporary entry for moving files
+static VFile root;  //Root file for filesystem reference
 
 // Append a string to directory[]
 static void append_dir(const char* c){
@@ -248,7 +244,7 @@ static void send_normal_ref(void) {  //Sends a reference return to the TPDD port
 
   LOGD_P("%s() entry",__func__);
   entry.getName(tempRefFileName,FILENAME_SZ);  //Save the current file entry's name to the reference file name buffer
-  send_ref(tempRefFileName, entry.isDirectory(), entry.fileSize());
+  send_ref(tempRefFileName, entry.isDirectory(), entry.size());
 
   LOGI_P("R:Ref");
   LOGD_P("%s() exit",__func__);
@@ -290,6 +286,7 @@ static void ret_next_ref(void) {
     //Open the entry
     if(entry = root.openNextFile()) {  //If the entry exists it is returned
       if(entry.isHidden() || (entry.isDirectory() && !DME)) {
+        LOGD_P("hidden");
         //If it's a directory and we're not in DME mode or file/dir is hidden
         entry.close();  //the entry is skipped over
         ret_next_ref(); //and this function is called again
@@ -359,8 +356,8 @@ static void req_reference(void) { // File/Dir Reference command handler
     append_dir(refFileNameNoDir);  //Add the reference to the directory buffer
 
     led_sd_on();
-    if(fs.exists(directory)){ //If the file or directory exists on the SD card...
-      entry=fs.open(directory); //...open it...
+    if(_vfs.exists(directory)){ //If the file or directory exists on the SD card...
+      entry = _vfs.open(directory); //...open it...
       send_normal_ref(); //send a refernce return to the TPDD port with its info...
       entry.close();  //...close the entry
     }else{  //If the file does not exist...
@@ -374,13 +371,13 @@ static void req_reference(void) { // File/Dir Reference command handler
     _sysstate = SYS_ENUM;
     led_sd_on();
     root.close();
-    root = fs.open(directory);
+    root = _vfs.open(directory);
     ret_first_ref();
     break;
   case ENUM_NEXT:   //Request next directory block
     led_sd_on();
     root.close();
-    root = fs.open(directory);
+    root = _vfs.open(directory);
     ret_next_ref();
     break;
   case ENUM_PREV:
@@ -417,12 +414,12 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
     } else {
       append_dir(refFileNameNoDir);  //Push the reference name onto the directory buffer
       led_sd_on();
-  //    if(DME && (byte)strstr(refFileName, ".<>") != 0x00 && !fs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
-      if(DME && strstr(refFileName, ".<>") != 0 && !fs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
-        fs.mkdir(directory);  //create the directory
+  //    if(DME && (byte)strstr(refFileName, ".<>") != 0x00 && !_vfs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+      if(DME && strstr(refFileName, ".<>") != 0 && !_vfs.exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+        _vfs.mkdir(directory);  //create the directory
         remove_subdir();
       } else {
-        entry = fs.open(directory); //Open the directory to reference the entry
+        entry = _vfs.open(directory); //Open the directory to reference the entry
         if(entry.isDirectory()){  //      !!!Moves into a sub-directory
           entry.close();  //If the entry is a directory
           append_dir("/"); //append a slash to the directory buffer
@@ -433,24 +430,24 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
             case OPEN_WRITE:
               // bug: FILE_WRITE includes O_APPEND, so existing files would be opened
               //      at end.
-              //entry = fs.open(directory, FILE_WRITE);
+              //entry = _vfs.open(directory, FILE_WRITE);
 
               // open for write, position at beginning of file, create if needed
-              entry = fs.open(directory, O_CREAT | O_WRITE);
+              entry = _vfs.open(directory, O_CREAT | O_WRITE);
               _sysstate = SYS_WRITE;
               break;                // Write
             case OPEN_APPEND:
-              entry = fs.open(directory, FILE_WRITE | O_APPEND);
+              entry = _vfs.open(directory, FILE_WRITE | O_APPEND);
               _sysstate = SYS_WRITE;
               break;                // Append
             case OPEN_READ:
             default:
-              entry = fs.open(directory, O_READ);
+              entry = _vfs.open(directory, O_READ);
               _sysstate = SYS_READ;
               break;                // Read
 #ifdef ENABLE_TPDD_EXTENSIONS
             case OPEN_READ_WRITE:   // LaddieAlpha/VirtuaT extension
-              entry = fs.open(directory, O_CREAT | O_RDWR);
+              entry = _vfs.open(directory, O_CREAT | O_RDWR);
               _sysstate = SYS_READ_WRITE;
               break;
 #endif
@@ -460,7 +457,7 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
       }
     }
 
-    if(fs.exists(directory)) { //If the file actually exists...
+    if(_vfs.exists(directory)) { //If the file actually exists...
       led_sd_off();
       send_ret_normal(ERR_SUCCESS);  //...send a normal return with no error.
     } else {  //If the file doesn't exist...
@@ -559,13 +556,13 @@ static void req_delete(){  //Delete the currently open entry
     led_sd_on();
     entry.close();  //Close any open entries
     append_dir(refFileNameNoDir);  //Push the reference name onto the directory buffer
-    entry = fs.open(directory, FILE_READ);  //directory can be deleted if opened "READ"
+    entry = _vfs.open(directory, FILE_READ);  //directory can be deleted if opened "READ"
 
     if(DME && entry.isDirectory()){
       entry.rmdir();  //If we're in DME mode and the entry is a directory, delete it
     }else{
       entry.close();  //Files can be deleted if opened "WRITE", so it needs to be re-opened
-      entry = fs.open(directory, FILE_WRITE);
+      entry = _vfs.open(directory, FILE_WRITE);
       entry.remove();
     }
     led_sd_off();
@@ -625,7 +622,7 @@ static void req_rename(){  //Renames the currently open entry
     led_sd_on();
 
     if(entry) entry.close(); //Close any currently open entries
-    entry = fs.open(directory); //Open the entry
+    entry = _vfs.open(directory); //Open the entry
     if(entry.isDirectory()) append_dir("/"); //Append a slash to the end of the directory buffer if the reference is a sub-directory
 
     copy_dir();  //Copy the directory buffer to the scratchpad directory buffer
@@ -654,7 +651,7 @@ static void req_rename(){  //Renames the currently open entry
 
     LOGD(directory);
     LOGD(tempDirectory);
-    fs.rename(tempDirectory,directory);  //Rename the entry
+    _vfs.rename(tempDirectory,directory);  //Rename the entry
 
     remove_subdir();
     entry.close();
@@ -719,7 +716,7 @@ static void req_tell(void) {
   LOGD_P("%s() entry",__func__);
   // Only tell if you have a file open
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
-    pos = entry.curPosition();
+    pos = entry.position();
     send_byte((uint8_t)pos);
     send_byte((uint8_t)(pos >> 8));
     send_byte((uint8_t)(pos >> 16));
@@ -801,7 +798,6 @@ void tpdd_scan(void) {
   uint8_t cmd = 0; // make the compiler happy
   uint8_t chk = 0;
   unsigned long idleSince = 0;
-
 
   LOGD_P("%s() entry",__func__);
   dtr_ready();

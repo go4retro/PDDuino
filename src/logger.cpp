@@ -26,7 +26,7 @@
 #include <Arduino.h>
 #include <avr/pgmspace.h>
 #include "config.h"
-#include "Logger.h"
+#include "logger.h"
 
 #ifndef LOGGER_DECL
   #define LOGGER_DECL

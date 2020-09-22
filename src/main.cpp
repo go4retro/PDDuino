@@ -32,22 +32,13 @@
 // 0.3.0 20180921 bkw - Teensy & Feather boards, CLIENT & CONSOLE, setLabel(), sleepNow()
 // 0.2   20180728 Jimmy Pettit original
 
-#if !defined(USE_SDIO)
-#include <SPI.h>
-#endif
-#include <SdFat.h>
-#include <sdios.h>
-#include <SdFatConfig.h>
-#include <SysCall.h>
+#include <Arduino.h>
 #include "config.h"
-#include "Logger.h"
+#include "logger.h"
 #include "tpdd.h"
+#include "vfs.h"
 
-#if defined(USE_SDIO)
-extern SdFatSdioEX fs;
-#else
-extern SdFat fs;
-#endif
+VFS _vfs;
 
 #if defined(SD_CD_PIN)
   const byte cdInterrupt = digitalPinToInterrupt(SD_CD_PIN);
@@ -76,11 +67,11 @@ extern SdFat fs;
 void(* restart) (void) = 0;
 
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
-void print_dir(File dir, byte numTabs) {
+void print_dir(VFile dir, byte numTabs) {
   char fileName[FILENAME_SZ] = "";
   char buffer[20];
 
-  static File entry; //Moving file entry for the emulator
+  VFile entry; //Moving file entry for the emulator
   uint8_t i;
 
   led_sd_on();
@@ -95,7 +86,7 @@ void print_dir(File dir, byte numTabs) {
         LOGD_P("(--------) %s%s/", buffer, fileName);
         print_dir(entry, numTabs + 0x01);
       } else {
-        LOGD_P("(%8.8lu) %s%s", entry.fileSize(), buffer, fileName);
+        LOGD_P("(%8.8lu) %s%s", entry.size(), buffer, fileName);
       }
     }
     entry.close();
@@ -105,7 +96,7 @@ void print_dir(File dir, byte numTabs) {
 #endif // DEBUG
 
 void init_card (void) {
-  File root;  //Root file for filesystem reference
+  VFile root;  //Root file for filesystem reference
 
   LOGD_P("%s() entry",__func__);
   while(true) {
@@ -119,17 +110,7 @@ void init_card (void) {
   #endif
 #endif
           );
-#if defined(USE_SDIO)
-    if (fs.begin()) {
-#else
- #if defined(SD_CS_PIN) && defined(SD_SPI_MHZ)
-    if (fs.begin(SD_CS_PIN,SD_SCK_MHZ(SD_SPI_MHZ))) {
- #elif defined(SD_CS_PIN)
-    if (fs.begin(SD_CS_PIN)) {
- #else
-    if (fs.begin()) {
- #endif
-#endif  // USE_SDIO
+    if(_vfs.mount()) {
       LOGD_P("Card Open");
 #if LED_SD
       led_sd_off();
@@ -151,14 +132,13 @@ void init_card (void) {
     }
   }
 
-  fs.chvol();
 
   // TODO - get the FAT volume label and use it in place of rootLabel
   // ...non-trivial
 
   // Always do this open() & close(), even if we aren't doing the printDirectory()
   // It's needed to get the SdFat library to put the sd card to sleep.
-  root = fs.open("/");
+  root = _vfs.open("/");
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
   LOGD_P("Directory:");
   print_dir(root, 0);
@@ -193,7 +173,7 @@ void send_loader(void) {
   uint32_t len;
   uint32_t sent = 0;
 #endif // DEBUG
-  File f = fs.open(LOADER_FILE);
+  VFile f = _vfs.open(LOADER_FILE);
 
   LOGD_P("%s() entry",__func__);
   if (f) {
