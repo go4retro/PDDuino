@@ -38,8 +38,6 @@
 #include "tpdd.h"
 #include "vfs.h"
 
-VFS _vfs;
-
 #if defined(SD_CD_PIN)
   const byte cdInterrupt = digitalPinToInterrupt(SD_CD_PIN);
 #endif // SD_CD_PIN
@@ -67,36 +65,41 @@ VFS _vfs;
 void(* restart) (void) = 0;
 
 #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
-void print_dir(VFile dir, byte numTabs) {
-  char fileName[FILENAME_SZ] = "";
+void print_dir(const char * path, byte numTabs) {
+  VDIR dir;
+  VRESULT rc = VR_OK;
   char buffer[20];
+  char path2[100];
 
-  VFile entry; //Moving file entry for the emulator
+  VFILEINFO entry; //Moving file entry for the emulator
   uint8_t i;
 
   led_sd_on();
-  while (entry = dir.openNextFile(O_RDONLY)) {
-    if(!entry.isHidden()) {
+  if(vfs_opendir(&dir, path) == VR_OK) {
+    while ((rc = vfs_readdir(&dir, &entry)) == VR_OK) {
 
-      entry.getName(fileName,FILENAME_SZ);
-      for(i = 0; i < numTabs; i++)
-        buffer[i] = ' ';
-      buffer[i] = '\0';
-      if (entry.isDirectory()) {
-        LOGD_P("(--------) %s%s/", buffer, fileName);
-        print_dir(entry, numTabs + 0x01);
-      } else {
-        LOGD_P("(%8.8lu) %s%s", entry.size(), buffer, fileName);
+      if(!(entry.attr & VATTR_HIDDEN)) {
+        for(i = 0; i < numTabs; i++)
+          buffer[i] = ' ';
+        buffer[i] = '\0';
+        if (entry.attr & VATTR_FOLDER) {
+          strcpy(path2, path);
+          strcat(path2, entry.name);
+          strcat(path2,"/");
+          LOGD_P("(--------) %s%s/", buffer, entry.name);
+          print_dir(path2, numTabs + 1);
+        } else {
+          LOGD_P("(%8.8lu) %s%s", entry.size, buffer, entry.name);
+        }
       }
     }
-    entry.close();
+    vfs_closedir(&dir);
   }
   led_sd_off();
 }
 #endif // DEBUG
 
 void init_card (void) {
-  VFile root;  //Root file for filesystem reference
 
   LOGD_P("%s() entry",__func__);
   while(true) {
@@ -110,7 +113,7 @@ void init_card (void) {
   #endif
 #endif
           );
-    if(_vfs.mount()) {
+    if(vfs_mount() == VR_OK) {
       LOGD_P("Card Open");
 #if LED_SD
       led_sd_off();
@@ -138,19 +141,15 @@ void init_card (void) {
 
   // Always do this open() & close(), even if we aren't doing the printDirectory()
   // It's needed to get the SdFat library to put the sd card to sleep.
-  root = _vfs.open("/");
-#if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
+  #if defined LOG_LEVEL && LOG_LEVEL >= LOG_DEBUG
   LOGD_P("Directory:");
-  print_dir(root, 0);
+  print_dir("/", 0);
   // The below takes FOREVER!
   //LOGV_P("%lu Bytes Free", fs.vol()->freeClusterCount() * fs.vol()->blocksPerCluster()/2);
-#endif
-  root.close();
-
+  #endif
   led_sd_off();
   LOGD_P("%s() exit",__func__);
 }
-
 
 #if defined(LOADER_FILE)
 /*
@@ -167,39 +166,33 @@ void init_card (void) {
 
 /* TPDD2-style bootstrap */
 void send_loader(void) {
-  int b = 0x00;
-
-#if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
+  VFILE f;
+  uint8_t buffer[128];
   uint32_t len;
+  uint32_t read;
   uint32_t sent = 0;
-#endif // DEBUG
-  VFile f = _vfs.open(LOADER_FILE);
+  uint8_t i;
+  VRESULT rc = VR_OK;
+
 
   LOGD_P("%s() entry",__func__);
-  if (f) {
+  if (vfs_open(&f, LOADER_FILE, VMODE_READ) == VR_OK) {
     led_sd_on();
-#if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-    len = f.size();
-#endif
+    len = f.size;
     LOGD_P("Sending " LOADER_FILE ": %d bytes ", len);
-      while (f.available()) {
-        b = f.read();
-        if(b >= 0) {
-          CLIENT.write(b);
-          sent++;
-#if defined LOG_LEVEL && LOG_LEVEL > LOG_NONE
-          if((sent % 128) == 0) {
-            // TODO See if this can be made a little prettier
-           LOGD_P("%d%% complete", (uint8_t)((sent * 100) / len));
-          }
-#endif // DEBUG
-          delay(LOADER_SEND_DELAY);
-        } else { // error
-          LOGE_P(LOADER_FILE " send returned error %d", b);
-          break;
-        }
+    while ((rc = vfs_read(&f, buffer, sizeof(buffer), &read)) == VR_OK) {
+      for(i = 0; i < read; i++) {
+        CLIENT.write(buffer[i]);
+        sent++;
+        delay(LOADER_SEND_DELAY);
       }
-    f.close();
+      LOGD_P("%d%% complete", (uint8_t)((sent * 100) / len));
+      if(read != sizeof(buffer))
+        break;
+    }
+    if(rc != VR_OK) // error
+      LOGE_P(LOADER_FILE " send returned error %d", rc);
+    vfs_close(&f);
     led_sd_off();
     CLIENT.flush();
     CLIENT.write(TOKEN_BASIC_END_OF_FILE);

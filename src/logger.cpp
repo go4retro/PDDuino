@@ -32,6 +32,8 @@
   #define LOGGER_DECL
 #endif
 
+LOGGER_DECL
+
 //#define USE_FLASH
 // Using Flash saves 8 bytes of RAM, but costs 10 bytes of Flash
 #ifdef USE_FLASH
