@@ -38,11 +38,19 @@ VRESULT vfs_mount(void) {
 
 
 VRESULT vfs_open(VFILE* file, const char *filename, const uint8_t mode) {
-  // convert modes
+  // TODO convert modes
   if(file != NULL) {
     file->file = _fs.open(filename, mode);
-    if(file->file)
+    if(file->file) {
+      if(file->file.isDirectory()) {
+        file->file.close();
+        return VR_IS_DIRECTORY;
+      }
+      file->size = file->file.size();
+      file->pos = file->file.position();
+      // need to set attributes...
       return VR_OK;
+    }
   }
   return VR_FAILURE;
 }
@@ -59,11 +67,12 @@ VRESULT vfs_close(VFILE* file) {
 VRESULT vfs_read(VFILE* file, void* data, const uint32_t len, uint32_t *read) {
   int32_t i;
 
-  if(file != NULL) {
+  if(file != NULL && file->file) {
     i = file->file.read(data, len);
     if(i >= 0) {
       file->size = file->file.size();
       file->pos = file->file.position();
+      *read = i;
       return VR_OK;
     } else
       *read = 0;
@@ -102,6 +111,7 @@ VRESULT vfs_seek(VFILE* file, const uint32_t pos) {
 
 
 VRESULT vfs_opendir (VDIR *dir, const char *path) {
+
   if(dir != NULL) {
     dir->dirfile =  _fs.open(path);
   }

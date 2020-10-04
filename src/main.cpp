@@ -101,7 +101,7 @@ void print_dir(const char * path, byte numTabs) {
 
 void init_card (void) {
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   while(true) {
     led_sd_on();
     LOGD_P("Opening SD card..."
@@ -148,7 +148,7 @@ void init_card (void) {
   //LOGV_P("%lu Bytes Free", fs.vol()->freeClusterCount() * fs.vol()->blocksPerCluster()/2);
   #endif
   led_sd_off();
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 #if defined(LOADER_FILE)
@@ -167,20 +167,20 @@ void init_card (void) {
 /* TPDD2-style bootstrap */
 void send_loader(void) {
   VFILE f;
-  uint8_t buffer[128];
+  uint8_t buffer[FILE_BUFFER_SZ];
   uint32_t len;
   uint32_t read;
   uint32_t sent = 0;
   uint8_t i;
   VRESULT rc = VR_OK;
+  LOGD_P("Address %8.8X", &f);
 
-
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   if (vfs_open(&f, LOADER_FILE, VMODE_READ) == VR_OK) {
     led_sd_on();
     len = f.size;
     LOGD_P("Sending " LOADER_FILE ": %d bytes ", len);
-    while ((rc = vfs_read(&f, buffer, sizeof(buffer), &read)) == VR_OK) {
+    while ((rc = vfs_read(&f, buffer, FILE_BUFFER_SZ, &read)) == VR_OK) {
       for(i = 0; i < read; i++) {
         CLIENT.write(buffer[i]);
         sent++;
@@ -207,7 +207,7 @@ void send_loader(void) {
   } else {
     LOGD_P("Could not find " LOADER_FILE " ...");
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
   //restart(); // go back to normal TPDD emulation mode
 }
 #endif // LOADER_FILE
@@ -246,7 +246,7 @@ void setup() {
   CLIENT.begin(19200);
   CLIENT.flush();
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
 
   LOGD_P("----- " APP_NAME " %d.%d.%d on board: " BOARD_NAME, APP_VERSION, APP_RELEASE, APP_REVISION);
 
@@ -323,13 +323,13 @@ void setup() {
   // then send LOADER.BA instead of going into main loop()
 #if DSR_PIN > -1 && defined(LOADER_FILE)
   if(dsr_is_ready()) {
-    LOGD_P("DSR: LOW. Doing sendLoader().");
+    LOGD_P("DSR: LOW. Sending DOS loader");
     send_loader();
   } else {
-    LOGD_P("DSR HIGH. Doing loop().");
+    LOGD_P("DSR HIGH. Run application");
   }
 #endif // DSR_PIN && LOADER_FILE
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 
@@ -341,6 +341,6 @@ void setup() {
 
 void loop() {
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   tpdd_scan();
 }

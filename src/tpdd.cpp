@@ -62,7 +62,7 @@ static void append_dir(const char* c){
   byte i = 0;
   byte j = 0;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   LOGD_P("directory (starting) '%s'", directory);
 
   while(directory[i] != '\0') i++;
@@ -73,22 +73,22 @@ static void append_dir(const char* c){
   }
 
   LOGD_P("directory (ending) '%s'", directory);
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 // Remove the last path element from directoy[]
 static void remove_subdir(void) {
   byte j = DIRECTORY_SZ;
 
-  LOGD_P("%s() entry",__func__);
-  LOGD_P("directory[%s]", directory);
+  LOGD_P("%s() entry", __func__);
+  LOGD_P("directory (starting) '%s'", directory);
 
   while(directory[j] == 0x00) j--;
   if(directory[j] == '/' && j!= 0x00) directory[j] = 0x00;
   while(directory[j] != '/') directory[j--] = 0x00;
 
-  LOGD_P("directory[%s]", directory);
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("directory (ending) '%s'", directory);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void copy_dir(void) { //Makes a copy of the working directory to a scratchpad
@@ -104,7 +104,7 @@ static void set_label(const char* s) {
   byte z = DIRECTORY_SZ;
   byte j = z;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   LOGD_P("set_label(%s", s);
   LOGD_P("directory[%s]", directory);
   LOGD_P("dmeLabel[%s]", dmeLabel);
@@ -119,7 +119,7 @@ static void set_label(const char* s) {
   dmeLabel[0x06] = 0x00;
 
   LOGD_P("dmeLabel[%s]", dmeLabel);
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 
@@ -164,19 +164,19 @@ static void send_dir_suffix(void) {
 
 static void send_ret_normal(error_t errorCode){ //Sends a normal return to the TPDD port with error code errorCode
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   LOGD_P("R:Norm %2.2X", errorCode);
   send_byte(RET_NORMAL);  //Return type (normal)
   send_byte(0x01);  //Data size (1)
   send_byte(errorCode); //Error code
   send_chksum(); //Checksum
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void send_ref(const char *name, bool isDir, uint32_t size ) {
   uint8_t i, j;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   LOGI_P("N:'%s':D%d-%d", name, isDir, size);
   send_byte(RET_DIRECTORY);    //Return type (reference)
   // filename + attribute + length + free sector count
@@ -188,7 +188,7 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
     send_byte(FILENAME_SZ + 1 + 2 + 1);    //Data size (1C)
   if(name == NULL) {
     for(i = 0; i < FILENAME_SZ; i++)
-      send_byte(0x00);  //Write the reference file name to the TPDD port
+      send_byte('\0');  //Write the reference file name to the TPDD port
   } else {
     if(isDir && DME) {  // handle dirname.
       for(i = 0; (i < 6) && (name[i] != 0); i++)
@@ -231,34 +231,34 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
     send_byte(0x9d);  //Free sectors, SD card has more than we'll ever care about
   send_chksum(); //Checksum
 
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void send_normal_ref(void) {  //Sends a reference return to the TPDD port
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   strcpy(tempRefFileName,dirinfo.name);  //Save the current file entry's name to the reference file name buffer
-  send_ref(tempRefFileName, dirinfo.attr & VATTR_FOLDER, entry.size);
+  send_ref(tempRefFileName, dirinfo.attr & VATTR_FOLDER, dirinfo.size);
 
   LOGI_P("R:Ref");
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void send_blank_ref(void) {  //Sends a blank reference return to the TPDD port
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   strcpy(tempRefFileName,dirinfo.name);  //Save the current file entry's name to the reference file name buffer
   send_ref(NULL, false, 0);
   LOGI_P("R:BRef");
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void send_parent_ref(void) {
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   send_ref("PARENT", true, 0);
   LOGI_P("R:PRef");
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -270,14 +270,13 @@ static void send_parent_ref(void) {
 static void ret_next_ref(void) {
   VRESULT rc;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   if(_sysstate == SYS_ENUM) {   // We are enumerating the directory
     directoryBlock++; //Increment the directory entry index
     led_sd_on();
     rc = vfs_opendir(&direntry, directory); //Pull back to the begining of the directory
     for(uint8_t i = 0; (rc == VR_OK) && (i < directoryBlock); i++) {
       rc = vfs_readdir(&direntry, &dirinfo);  //skip to the current entry offset by the index
-      LOGD(dirinfo.name);
     }
     //Open the entry
     if(rc == VR_OK) {  //If the entry exists it is returned
@@ -298,12 +297,12 @@ static void ret_next_ref(void) {
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_DIR_SEARCH);
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void ret_first_ref(void) {
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   directoryBlock = 0; //Set the current directory entry index to 0
   if(DME && directoryDepth > 0) { //Return the "PARENT.<>" reference if we're in DME mode
     led_sd_off();
@@ -311,29 +310,29 @@ static void ret_first_ref(void) {
   }else{
     ret_next_ref();    //otherwise we just return the next reference
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 
-bool dir_exists(const char *path) {
+bool exists(const char *path) {
   VRESULT rc;
+  VFILE f;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
 
-  rc = vfs_opendir(&direntry, path);
-  if(rc == VR_OK) {
-    vfs_closedir(&direntry);
-  }
-  LOGD_P("%s() exit",__func__);
-  return (rc == VR_OK);
+  rc = vfs_open(&f, path, VMODE_READ);
+  vfs_close(&f);
+  LOGD_P("%s() exit", __func__);
+  return (rc == VR_OK || rc == VR_IS_DIRECTORY);
 }
 
 
 static void req_reference(void) { // File/Dir Reference command handler
   enumtype_t searchForm = (enumtype_t)_buffer[0x19];  //The search form byte exists 0x19 bytes into the command
   byte refIndex = 0;  //Reference file name index
+  VRESULT rc = VR_OK;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
 
   LOGD_P("SF: %2.2X", searchForm);
 
@@ -350,27 +349,30 @@ static void req_reference(void) { // File/Dir Reference command handler
     LOGV_P("Ref: %s", refFileName);
 
     if(DME){  //        !!!Strips the ".<>" off of the reference name if we're in DME mode
-      if(strstr(refFileName, ".<>") != 0x00){
+      if(strstr(refFileName, ".<>") != 0){
         for(byte i=0x00; i<FILENAME_SZ; i++){  //Copies the reference file name to a scratchpad buffer with no directory extension if the reference is for a directory
           if(refFileName[i] != '.' && refFileName[i] != '<' && refFileName[i] != '>'){
             refFileNameNoDir[i]=refFileName[i];
           }else{
-            refFileNameNoDir[i]=0x00; //If the character is part of a directory extension, don't copy it
+            refFileNameNoDir[i]='\0'; //If the character is part of a directory extension, don't copy it
           }
         }
       }else{
-        for(byte i=0x00; i<FILENAME_SZ; i++) refFileNameNoDir[i]=refFileName[i]; //Copy the reference directly to the scratchpad buffer if it's not a directory reference
+        for(byte i = 0; i < FILENAME_SZ; i++) refFileNameNoDir[i]=refFileName[i]; //Copy the reference directly to the scratchpad buffer if it's not a directory reference
       }
     }
 
     append_dir(refFileNameNoDir);  //Add the reference to the directory buffer
 
     led_sd_on();
-    if(dir_exists(directory)){ //If the file or directory exists on the SD card...
-      vfs_opendir(&direntry, directory); //...open it...
-      send_normal_ref(); //send a refernce return to the TPDD port with its info...
-      vfs_closedir(&direntry);  //...close the entry
-    }else{  //If the file does not exist...
+    rc = vfs_open(&entry, directory, VMODE_READ);
+    if(rc == VR_OK) {
+      send_ref(refFileNameNoDir, false, entry.size);
+      vfs_close(&entry);
+    } else if(rc == VR_IS_DIRECTORY) {
+      vfs_close(&entry);
+      send_ref(refFileNameNoDir, true, 0);
+    } else {  //If the file does not exist...
       send_blank_ref();
     }
 
@@ -402,7 +404,7 @@ static void req_reference(void) { // File/Dir Reference command handler
     send_ret_normal(ERR_SUCCESS);  //Send a normal return to the TPDD port with a parameter error
   }
   led_sd_off();
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 
@@ -410,31 +412,34 @@ static void req_reference(void) { // File/Dir Reference command handler
  * System State: This can only run from SYS_REF, and goes to SYS_IDLE if error
  */
 static void req_open(void) {  //Opens an entry for reading, writing, or appending
+  VRESULT rc;
   _mode = (openmode_t)_buffer[0];  //The access mode is stored in the 1st byte of the command payload
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
 
   if(_sysstate == SYS_REF) {
     vfs_closedir(&direntry);
 
     if(DME && strcmp(refFileNameNoDir, "PARENT") == 0) { //If DME mode is enabled and the reference is for the "PARENT" directory
+      LOGD_P("CHDIR ..");
       remove_subdir();  //The top-most entry in the directory buffer is taken away
       directoryDepth--; //and the directory depth index is decremented
     } else {
       append_dir(refFileNameNoDir);  //Push the reference name onto the directory buffer
       led_sd_on();
-      if(DME && strstr(refFileName, ".<>") != 0 && !dir_exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+      if(DME && strstr(refFileName, ".<>") != 0 && !exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+        LOGD_P("MKDIR");
         vfs_mkdir(directory);  //create the directory
         remove_subdir();
       } else {
-        vfs_opendir(&direntry, directory); //Open the directory to reference the entry
-        vfs_readdir(&direntry, &dirinfo);
-        if(dirinfo.attr & VATTR_FOLDER) {  //      !!!Moves into a sub-directory
-          vfs_closedir(&direntry);  //If the entry is a directory
+        rc = vfs_open(&entry, directory, VMODE_READ);
+        vfs_close(&entry);
+        if(rc == VR_IS_DIRECTORY) { // open the directory to reference the entry
+          LOGD_P("CHDIR");
           append_dir("/"); //append a slash to the directory buffer
           directoryDepth++; //and increment the directory depth index
         } else {  //If the reference isn't a sub-directory, it's a file
-          vfs_closedir(&direntry);
+          LOGD_P("OPEN");
           switch(_mode){
             case OPEN_WRITE:
               // bug: FILE_WRITE includes O_APPEND, so existing files would be opened
@@ -466,7 +471,7 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
       }
     }
 
-    if(dir_exists(directory)) { //If the file actually exists...
+    if(exists(directory)) { //If the file actually exists...
       led_sd_off();
       send_ret_normal(ERR_SUCCESS);  //...send a normal return with no error.
     } else {  //If the file doesn't exist...
@@ -478,7 +483,7 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
     send_ret_normal(ERR_NO_FILE);  //...send a normal return with a "file does not exist" error.
 
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -487,12 +492,12 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
  */
 static void req_close() {  // Closes the currently open entry
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   vfs_close(&entry);  //Close the entry
   led_sd_off();
   _sysstate = SYS_IDLE;
   send_ret_normal(ERR_SUCCESS);  //Normal return with no error
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -503,7 +508,7 @@ static void req_read(){  //Read a block of data from the currently open entry
   VRESULT rc;
   uint32_t read;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   if((_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
     led_sd_on();
     rc = vfs_read(&entry, fileBuffer, FILE_BUFFER_SZ, &read);  //Try to pull 128 bytes from the file into the buffer
@@ -524,7 +529,7 @@ static void req_read(){  //Read a block of data from the currently open entry
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_NO_NAME);       // no file to reference
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -535,7 +540,7 @@ static void req_write(){ //Write a block of data from the command to the current
   VRESULT rc;
   uint32_t written;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ_WRITE)) {
     led_sd_on();
     rc = vfs_write(&entry, _buffer, _length, &written);
@@ -554,7 +559,7 @@ static void req_write(){ //Write a block of data from the command to the current
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_NO_NAME); // no file to reference
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 
@@ -564,7 +569,7 @@ static void req_write(){ //Write a block of data from the command to the current
 static void req_delete() {  //Delete the currently open entry
   VRESULT rc;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
 
   if(_sysstate == SYS_REF) {
     led_sd_on();
@@ -581,7 +586,7 @@ static void req_delete() {  //Delete the currently open entry
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_NO_FILE);
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void ret_not_impl(void) {
@@ -591,16 +596,16 @@ static void ret_not_impl(void) {
 
 static void req_format(){  //Not implemented
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   ret_not_impl();
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void req_status(){  //Drive status
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   send_ret_normal(ERR_SUCCESS);
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -608,12 +613,12 @@ static void req_status(){  //Drive status
  */
 static void req_condition(){
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   send_byte(RET_CONDITION);  //Return type (normal)
   send_byte(0x01);  //Data size (1)
   send_byte(ERR_SUCCESS); //Error code
   send_chksum(); //Checksum
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -621,7 +626,7 @@ static void req_condition(){
  */
 static void req_rename(){  //Renames the currently open entry
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
 
   if(_sysstate == SYS_REF) { // we have a file reference to use.
 
@@ -641,10 +646,10 @@ static void req_rename(){  //Renames the currently open entry
     tempRefFileName[i] = '\0'; //Terminate the temporary reference name with a null character
 
     if(DME && dirinfo.attr & VATTR_FOLDER){ //      !!!If the entry is a directory, we need to strip the ".<>" off of the new directory name
-      if(strstr(tempRefFileName, ".<>") != 0x00){
+      if(strstr(tempRefFileName, ".<>") != 0){
         for(byte i=0x00; i<FILENAME_SZ; i++){
           if(tempRefFileName[i] == '.' || tempRefFileName[i] == '<' || tempRefFileName[i] == '>'){
-            tempRefFileName[i]=0x00;
+            tempRefFileName[i]='\0';
           }
         }
       }
@@ -666,7 +671,7 @@ static void req_rename(){  //Renames the currently open entry
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_NO_FILE);    // No file to rename
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -676,7 +681,7 @@ static void req_rename(){  //Renames the currently open entry
 static void req_seek(void) {
   int32_t pos;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
     if((_length == 5)
         && (_buffer[OFFSET_SEEK_TYPE]) // > 0
@@ -708,14 +713,14 @@ static void req_seek(void) {
     send_ret_normal(ERR_NO_NAME);     // no file opened for reading or writing.
 
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 
 static void req_tell(void) {
   uint32_t pos;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   // Only tell if you have a file open
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
     pos = entry.pos;
@@ -727,7 +732,7 @@ static void req_tell(void) {
   } else {
     send_ret_normal(ERR_NO_NAME);     // no file opened for reading or writing.
   }
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 #endif
 
@@ -742,7 +747,7 @@ static void req_tell(void) {
  */
 static void req_dme_label() {  //Send the dmeLabel
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   LOGD_P("dmeLabel[%s]", dmeLabel);
 
   /* as per
@@ -759,7 +764,7 @@ static void req_dme_label() {  //Send the dmeLabel
   send_dir_suffix();
   send_byte(' ');
   send_chksum();
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 /*
@@ -770,12 +775,12 @@ static void req_dme_label() {  //Send the dmeLabel
 //  https://www.mail-archive.com/m100@lists.bitchin100.com/msg11247.html
 static void req_unknown_1(void) {
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   send_byte(RET_TSDOS_UNK_1);
   send_byte(0x01);  //Data size (1)
   send_byte(ERR_SUCCESS);
   send_chksum();
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 
 static void req_unknown_2(void) {
@@ -784,12 +789,12 @@ static void req_unknown_2(void) {
                          };
 
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   send_byte(RET_UNKNOWN_2);
   send_byte(sizeof(data));
   send_buffer((uint8_t *)data, sizeof(data));
   send_chksum();
-  LOGD_P("%s() exit",__func__);
+  LOGD_P("%s() exit", __func__);
 }
 #endif
 
@@ -801,7 +806,7 @@ void tpdd_scan(void) {
   uint8_t chk = 0;
   unsigned long idleSince = 0;
 
-  LOGD_P("%s() entry",__func__);
+  LOGD_P("%s() entry", __func__);
   dtr_ready();
   while(true) {
   #if defined(ENABLE_SLEEP)

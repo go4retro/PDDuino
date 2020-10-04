@@ -37,6 +37,7 @@ typedef struct _VFILEINFO {
 
 typedef enum _VRESULT {
   VR_OK = 0,
+  VR_IS_DIRECTORY,
   VR_FAILURE = 255
 } VRESULT;
 
