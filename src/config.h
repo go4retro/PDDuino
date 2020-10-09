@@ -29,6 +29,15 @@
 #include <Arduino.h>
 #endif
 
+#define APP_NAME      "PDDuino"
+#define APP_VERSION   0
+#define APP_RELEASE   4
+#define APP_REVISION  1
+// 0.4.1 20200913 bkw - more IDE-supplied macros to un-hardcode where possible, more debug output
+// 0.4.0 20200828 bkw - sendLoader()
+// 0.3.0 20180921 bkw - Teensy & Feather boards, CLIENT & CONSOLE, setLabel(), sleepNow()
+// 0.2   20180728 Jimmy Pettit original
+
 
 // Debugging settings
 
@@ -428,5 +437,8 @@ static inline bool dsr_is_ready(void)     { return DSR_PIN_IN }
   #define dsr_init()                      do {} while(0)
   #define dsr_is_ready()                  {0} // always return 0
 #endif // DSR_PIN
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
 
 #endif /* CONFIG_H_ */

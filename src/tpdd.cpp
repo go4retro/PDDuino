@@ -31,97 +31,107 @@
 
 #include "tpdd.h"
 
-static byte checksum = 0;  //Global variable for checksum calculation
-static bool DME = false; //TS-DOS DME mode flag
+static VFILEINFO dirinfo;
+static byte _checksum =       0;          //Global variable for checksum calculation
+static byte _dir_index =      0;          //Current directory block for directory listing
+static byte _dir_depth =      0;
+static uint8_t _dme_enabled =    false;      //TS-DOS DME mode flag
+static sysstate_t _sysstate = SYS_IDLE;
+static openmode_t _mode =     OPEN_NONE;
 
-static uint8_t _buffer[DATA_BUFFER_SZ]; //Data buffer for commands
+static uint8_t _buffer[DATA_BUFFER_SZ];         //Data buffer for commands
 static uint8_t _length;
 
-static byte fileBuffer[FILE_BUFFER_SZ]; //Data buffer for file reading
+static char _path[DIRECTORY_SZ] = "/";
 
-static char refFileName[FILENAME_SZ] = "";  //Reference file name for emulator
-static char refFileNameNoDir[FILENAME_SZ] = ""; //Reference file name for emulator with no ".<>" if directory
-static char tempRefFileName[FILENAME_SZ] = ""; //Second reference file name for renaming
-static byte directoryBlock = 0x00; //Current directory block for directory listing
-static char directory[DIRECTORY_SZ] = "/";
-static byte directoryDepth = 0x00;
-static char tempDirectory[DIRECTORY_SZ] = "/";
-static char dmeLabel[0x07] = "";  // 6 chars + NULL
+// saves 100 bytes of FLASH to have these global
+static VFILE _file;                       //Moving file entry for the emulator
+static VDIR _dir;                         // information about the current directory item
+static char _filename[FILENAME_SZ] = "";  //Reference file name for emulator with no ".<>" if directory
+static char _tmpname[FILENAME_SZ] = "";  //Second reference file name for renaming
 
-static sysstate_t _sysstate = SYS_IDLE;
+#define USE_STRING_FUNCS
 
-static openmode_t _mode = OPEN_NONE;
+static uint8_t get_local_path(char *curdir) {
+  char ch;
+  uint8_t p1 = 0;
+  uint8_t p2 = 0;
+  uint8_t i;
+  uint8_t ret;
 
-static VFILE entry; //Moving file entry for the emulator
-static VDIR direntry;
-static VFILEINFO dirinfo;
+  for(i = 0; i < DIRECTORY_SZ; i++) {
+    ch = _path[i];
+    if(ch == '\0')
+      break;
+    else if(ch == '/') {
+      p2 = p1;
+      p1 = i;
+    }
+  }
+  // OK copy into curdir
+  if(_path[p2] == '/')
+    p2++;   // skip over '/'
+  ret = p2;
+  i = 0;
+  while(p2 < p1 && i < 6 && _path[p2] != '\0') {
+    curdir[i++] = _path[p2++];
+  }
+  curdir[i] = '\0';
+  return ret;
+}
+
 
 // Append a string to directory[]
-static void append_dir(const char* c){
+static void append_path(const char* c){
+#ifndef USE_STRING_FUNCS
   bool t = false;
   byte i = 0;
   byte j = 0;
+#endif
 
   LOGD_P("%s() entry", __func__);
-  LOGD_P("directory (starting) '%s'", directory);
+  LOGD_P("directory (starting) '%s'", _path);
 
-  while(directory[i] != '\0') i++;
+#ifdef USE_STRING_FUNCS
+  strcat(_path, c);
+#else
+  while(_path[i] != '\0') i++;
 
   while(!t){
-    directory[i++] = c[j++];
+    _path[i++] = c[j++];
     t = c[j] == '\0';
   }
+#endif
 
-  LOGD_P("directory (ending) '%s'", directory);
+  LOGD_P("directory (ending) '%s'", _path);
   LOGD_P("%s() exit", __func__);
 }
 
 // Remove the last path element from directoy[]
-static void remove_subdir(void) {
-  byte j = DIRECTORY_SZ;
+static void remove_path(void) {
+  uint8_t i = 0;
+  uint8_t p1 = 0;
+  uint8_t p2 = 0;
 
   LOGD_P("%s() entry", __func__);
-  LOGD_P("directory (starting) '%s'", directory);
+  LOGD_P("directory (starting) '%s'", _path);
 
-  while(directory[j] == 0x00) j--;
-  if(directory[j] == '/' && j!= 0x00) directory[j] = 0x00;
-  while(directory[j] != '/') directory[j--] = 0x00;
+  while(_path[i] != '\0') {
+    if(_path[i] == '/') {
+      p2 = p1;
+      p1 = i;
+    }
+    i++;
+  }
+  if(p1 + 1 != i) { // filename at end of path
+    p2 = p1;
+    p1 = i;
+  }
+  _path[p2 + 1] = '\0';
 
-  LOGD_P("directory (ending) '%s'", directory);
+  LOGD_P("directory (ending) '%s'", _path);
   LOGD_P("%s() exit", __func__);
 }
-
-static void copy_dir(void) { //Makes a copy of the working directory to a scratchpad
-  for(byte i=0x00; i<DIRECTORY_SZ; i++) tempDirectory[i] = directory[i];
-}
-
-
-// Fill dmeLabel[] with exactly 6 chars from s[], space-padded.
-// We could just read directory[] directly instead of passng s[]
-// but this way we can pass arbitrary values later. For example
-// FAT volume label, RTC time, battery level, ...
-static void set_label(const char* s) {
-  byte z = DIRECTORY_SZ;
-  byte j = z;
-
-  LOGD_P("%s() entry", __func__);
-  LOGD_P("set_label(%s", s);
-  LOGD_P("directory[%s]", directory);
-  LOGD_P("dmeLabel[%s]", dmeLabel);
-
-  while(s[j] == 0x00) j--;            // seek from end to non-null
-  if(s[j] == '/' && j > 0x00) j--;    // seek past trailing slash
-  z = j;                              // mark end of name
-  while(s[j] != '/' && j > 0x00) j--; // seek to next slash
-
-  // copy 6 chars, up to z or null, space pad
-  for(byte i=0x00 ; i<0x06 ; i++) if(s[++j]>0x00 && j<=z) dmeLabel[i] = s[j]; else dmeLabel[i] = 0x20;
-  dmeLabel[0x06] = 0x00;
-
-  LOGD_P("dmeLabel[%s]", dmeLabel);
-  LOGD_P("%s() exit", __func__);
-}
-
 
 
 /*
@@ -131,9 +141,9 @@ static void set_label(const char* s) {
  */
 
 static void send_byte(char c){  //Outputs char c to TPDD port and adds to the checksum
-  checksum += c;
+  _checksum += c;
   CLIENT.write(c);
-  LOGV_P("O:%2.2X(%c)>%2.2X", (uint8_t)c, (c > 0x20 && (uint8_t)c < 0x80 ? c : ' '), checksum);
+  LOGV_P("O:%2.2X(%c)>%2.2X", (uint8_t)c, (c > 0x20 && (uint8_t)c < 0x80 ? c : ' '), _checksum);
 }
 
 static void send_buffer(uint8_t *data, uint16_t len) {
@@ -143,10 +153,10 @@ static void send_buffer(uint8_t *data, uint16_t len) {
 }
 
 static void send_chksum(void) {  //Outputs the checksum to the TPDD port and clears the checksum
-  uint8_t chk = checksum ^ 0xff;
+  uint8_t chk = _checksum ^ 0xff;
   CLIENT.write(chk);
   LOGV_P("O:%2.2X", chk);
-  checksum = 0;
+  _checksum = 0;
 }
 
 static void send_dir_suffix(void) {
@@ -162,22 +172,22 @@ static void send_dir_suffix(void) {
  *
  */
 
-static void send_ret_normal(error_t errorCode){ //Sends a normal return to the TPDD port with error code errorCode
+static void send_ret_normal(error_t error){ //Sends a normal return to the TPDD port with error code errorCode
 
   LOGD_P("%s() entry", __func__);
-  LOGD_P("R:Norm %2.2X", errorCode);
+  LOGD_P("R:Norm %2.2X", error);
   send_byte(RET_NORMAL);  //Return type (normal)
-  send_byte(0x01);  //Data size (1)
-  send_byte(errorCode); //Error code
+  send_byte(1);  //Data size (1)
+  send_byte(error); //Error code
   send_chksum(); //Checksum
   LOGD_P("%s() exit", __func__);
 }
 
-static void send_ref(const char *name, bool isDir, uint32_t size ) {
+static void send_ref(const char *name, uint8_t is_dir, uint32_t size ) {
   uint8_t i, j;
 
   LOGD_P("%s() entry", __func__);
-  LOGI_P("N:'%s':D%d-%d", name, isDir, size);
+  LOGI_P("N:'%s':D%d-%d", name, is_dir, size);
   send_byte(RET_DIRECTORY);    //Return type (reference)
   // filename + attribute + length + free sector count
 #ifdef ENABLE_TPDD_EXTENSIONS
@@ -190,7 +200,7 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
     for(i = 0; i < FILENAME_SZ; i++)
       send_byte('\0');  //Write the reference file name to the TPDD port
   } else {
-    if(isDir && DME) {  // handle dirname.
+    if(is_dir && _dme_enabled) {  // handle dirname.
       for(i = 0; (i < 6) && (name[i] != 0); i++)
         send_byte(name[i]);
       for(;i < 6; i++)
@@ -198,7 +208,7 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
       send_dir_suffix();
       j = 9;
     } else {
-      for(i = 0; (i < 6) && (name[i] != '.'); i++) {
+      for(i = 0; (i < 6) && name[i] && (name[i] != '.'); i++) {
         send_byte(name[i]);
       }
       for(j = i; j < 6; j++) {
@@ -228,18 +238,16 @@ static void send_ref(const char *name, bool isDir, uint32_t size ) {
     //send_byte(0x80);  //Free sectors, SD card has more than we'll ever care about
     // Note: ts-dos only uses the value returned on the last dir entry.
     // and that entry is often empty...
-    send_byte(0x9d);  //Free sectors, SD card has more than we'll ever care about
+    send_byte(MAX_FREE_SECTORS);  //Free sectors, SD card has more than we'll ever care about
   send_chksum(); //Checksum
 
   LOGD_P("%s() exit", __func__);
 }
 
-static void send_normal_ref(void) {  //Sends a reference return to the TPDD port
+static void send_normal_ref(VFILEINFO *info) {  //Sends a reference return to the TPDD port
 
   LOGD_P("%s() entry", __func__);
-  strcpy(tempRefFileName,dirinfo.name);  //Save the current file entry's name to the reference file name buffer
-  send_ref(tempRefFileName, dirinfo.attr & VATTR_FOLDER, dirinfo.size);
-
+  send_ref(info->name, info->attr & VATTR_FOLDER, info->size);
   LOGI_P("R:Ref");
   LOGD_P("%s() exit", __func__);
 }
@@ -247,7 +255,6 @@ static void send_normal_ref(void) {  //Sends a reference return to the TPDD port
 static void send_blank_ref(void) {  //Sends a blank reference return to the TPDD port
 
   LOGD_P("%s() entry", __func__);
-  strcpy(tempRefFileName,dirinfo.name);  //Save the current file entry's name to the reference file name buffer
   send_ref(NULL, false, 0);
   LOGI_P("R:BRef");
   LOGD_P("%s() exit", __func__);
@@ -261,33 +268,39 @@ static void send_parent_ref(void) {
   LOGD_P("%s() exit", __func__);
 }
 
+
 /*
  *
  * TPDD Port command handler routines
  *
  */
 
-static void ret_next_ref(void) {
+// TODO need to remove dirinfo as a global parm
+static void ret_next_ref(VDIR *dir, int8_t offset) {
   VRESULT rc;
 
   LOGD_P("%s() entry", __func__);
-  if(_sysstate == SYS_ENUM) {   // We are enumerating the directory
-    directoryBlock++; //Increment the directory entry index
+  if(_sysstate == SYS_ENUM) {               // We are enumerating the directory
+    // TODO we might be able to optimize this for forward motion...
+    _dir_index = _dir_index + offset;  // Inc/Dec the directory entry index
     led_sd_on();
-    rc = vfs_opendir(&direntry, directory); //Pull back to the begining of the directory
-    for(uint8_t i = 0; (rc == VR_OK) && (i < directoryBlock); i++) {
-      rc = vfs_readdir(&direntry, &dirinfo);  //skip to the current entry offset by the index
+    rc = vfs_opendir(dir, _path); //Pull back to the begining of the directory
+    for(uint8_t i = 0; (rc == VR_OK) && (i < _dir_index); i++) {
+      rc = vfs_readdir(dir, &dirinfo);  //skip to the current entry offset by the index
     }
-    //Open the entry
-    if(rc == VR_OK) {  //If the entry exists it is returned
-      if((dirinfo.attr & VATTR_HIDDEN) || ((dirinfo.attr & VATTR_FOLDER) && !DME)) {
+    while(rc == VR_OK) {  //If the entry exists it is returned
+      //Open the entry
+      if((dirinfo.attr & VATTR_HIDDEN) || ((dirinfo.attr & VATTR_FOLDER) && !_dme_enabled)) {
         //If it's a directory and we're not in DME mode or file/dir is hidden
-        vfs_closedir(&direntry);  //the entry is skipped over
-        ret_next_ref(); //and this function is called again
+        // skip this entry
+        rc = vfs_readdir(dir, &dirinfo);  // grab a new one
       } else {
-        send_normal_ref(); //Send the reference info to the TPDD port
-        vfs_closedir(&direntry);  //Close the entry
+        break;
       }
+    } // at this point, we should be at end or at good entry
+    vfs_closedir(dir);  //Close the entry
+    if(rc == VR_OK) {
+      send_normal_ref(&dirinfo); //Send the reference info to the TPDD port
       led_sd_off();
     } else {
       led_sd_off();
@@ -300,21 +313,21 @@ static void ret_next_ref(void) {
   LOGD_P("%s() exit", __func__);
 }
 
-static void ret_first_ref(void) {
+static void ret_first_ref(VDIR *dir) {
 
   LOGD_P("%s() entry", __func__);
-  directoryBlock = 0; //Set the current directory entry index to 0
-  if(DME && directoryDepth > 0) { //Return the "PARENT.<>" reference if we're in DME mode
+  _dir_index = 0;               //Set the current directory entry index to 0
+  if(_dme_enabled && _dir_depth > 0) {   //Return the "PARENT.<>" reference if we're in DME mode
     led_sd_off();
     send_parent_ref();
-  }else{
-    ret_next_ref();    //otherwise we just return the next reference
+  } else {
+    ret_next_ref(dir, 1);    //otherwise we just return the next reference
   }
   LOGD_P("%s() exit", __func__);
 }
 
 
-bool exists(const char *path) {
+static bool exists(const char *path) {
   VRESULT rc;
   VFILE f;
 
@@ -326,74 +339,80 @@ bool exists(const char *path) {
   return (rc == VR_OK || rc == VR_IS_DIRECTORY);
 }
 
+static bool fmt_name(char* buf, char* name, uint8_t strip_dir) {
+  uint8_t i;
+  uint8_t j = 0;
+  uint8_t is_dir = false;
 
-static void req_reference(void) { // File/Dir Reference command handler
-  enumtype_t searchForm = (enumtype_t)_buffer[0x19];  //The search form byte exists 0x19 bytes into the command
-  byte refIndex = 0;  //Reference file name index
+  for(i = 0; i < FILENAME_SZ; i++) {  //Put the reference file name into a buffer
+    if(strip_dir && i < (FILENAME_SZ - 3) && buf[i] == '.' && buf[i + 1] == '<' && buf[i + 2] == '>') {
+      // we're a dir listing, strip off ".<>" and set flag
+      is_dir = true;
+      break;
+    }
+    if(buf[i] != ' ') { //If the char pulled from the command is not a space character (0x20)...
+      name[j++] = buf[i];     //write it into the buffer and increment the index.
+    } else if(buf[i] == '\0') {
+      break;
+    }
+  }
+  name[j] = '\0'; //Terminate the file name buffer with a null character
+  return is_dir;
+}
+
+
+static void req_reference(VDIR *dir, char *name, uint8_t *is_dir) { // File/Dir Reference command handler
+  VFILE f;
+  enumtype_t enumtype = (enumtype_t)_buffer[OFFSET_SEARCH_FORM];  //The search form byte exists 0x19 bytes into the command
   VRESULT rc = VR_OK;
 
   LOGD_P("%s() entry", __func__);
 
-  LOGD_P("SF: %2.2X", searchForm);
+  *is_dir = false;
 
-  switch(searchForm) {
+  LOGD_P("Search Form: %2.2X", enumtype);
+
+  switch(enumtype) {
   case ENUM_PICK:  //Request entry by name
-    for(uint8_t i = 0; i < FILENAME_SZ; i++) {  //Put the reference file name into a buffer
-      if(_buffer[i] != ' '){ //If the char pulled from the command is not a space character (0x20)...
-        refFileName[refIndex++]=_buffer[i];     //write it into the buffer and increment the index.
-      }
-    }
-    refFileName[refIndex] = '\0'; //Terminate the file name buffer with a null character
+    *is_dir = fmt_name((char *)_buffer, name, _dme_enabled); // remove spaces.
+
     _sysstate = SYS_REF;
 
-    LOGV_P("Ref: %s", refFileName);
+    LOGV_P("Ref: %s", name);
 
-    if(DME){  //        !!!Strips the ".<>" off of the reference name if we're in DME mode
-      if(strstr(refFileName, ".<>") != 0){
-        for(byte i=0x00; i<FILENAME_SZ; i++){  //Copies the reference file name to a scratchpad buffer with no directory extension if the reference is for a directory
-          if(refFileName[i] != '.' && refFileName[i] != '<' && refFileName[i] != '>'){
-            refFileNameNoDir[i]=refFileName[i];
-          }else{
-            refFileNameNoDir[i]='\0'; //If the character is part of a directory extension, don't copy it
-          }
-        }
-      }else{
-        for(byte i = 0; i < FILENAME_SZ; i++) refFileNameNoDir[i]=refFileName[i]; //Copy the reference directly to the scratchpad buffer if it's not a directory reference
-      }
-    }
-
-    append_dir(refFileNameNoDir);  //Add the reference to the directory buffer
+    append_path(name);  //Add the reference to the directory buffer
 
     led_sd_on();
-    rc = vfs_open(&entry, directory, VMODE_READ);
+    rc = vfs_open(&f, _path, VMODE_READ);
     if(rc == VR_OK) {
-      send_ref(refFileNameNoDir, false, entry.size);
-      vfs_close(&entry);
+      send_ref(name, false, f.size);  // it's a file
+      vfs_close(&f);
     } else if(rc == VR_IS_DIRECTORY) {
-      vfs_close(&entry);
-      send_ref(refFileNameNoDir, true, 0);
+      vfs_close(&f);
+      // TODO Should we send back the NoDir version, or the regular version with the ".<>"?
+      send_ref(name, true, 0);            // it's a dir
     } else {  //If the file does not exist...
       send_blank_ref();
     }
 
-    remove_subdir();  //Strip the reference off of the directory buffer
+    remove_path();  //Strip the reference off of the directory buffer
 
     break;
   case ENUM_FIRST:  //Request first directory block
     _sysstate = SYS_ENUM;
     led_sd_on();
-    ret_first_ref();
+    ret_first_ref(dir);
     break;
   case ENUM_NEXT:   //Request next directory block
     led_sd_on();
-    vfs_closedir(&direntry);
-    vfs_opendir(&direntry, directory);
-    ret_next_ref();
+    //vfs_closedir(&direntry);
+    //vfs_opendir(&direntry, directory);
+    ret_next_ref(dir, +1);
     break;
   case ENUM_PREV:
-    // TODO really should back up the dir one...
-    _sysstate = SYS_IDLE;
-    send_ret_normal(ERR_PARM);  //  For now, send some error back
+    ret_next_ref(dir, -1);
+    //_sysstate = SYS_IDLE;
+    //send_ret_normal(ERR_PARM);  //  For now, send some error back
     break;
   default:          //Parameter is invalid
     _sysstate = SYS_IDLE;
@@ -411,73 +430,70 @@ static void req_reference(void) { // File/Dir Reference command handler
 /*
  * System State: This can only run from SYS_REF, and goes to SYS_IDLE if error
  */
-static void req_open(void) {  //Opens an entry for reading, writing, or appending
-  VRESULT rc;
-  _mode = (openmode_t)_buffer[0];  //The access mode is stored in the 1st byte of the command payload
+static void req_open(VFILE *f, char *name, uint8_t is_dir) {  //Opens an entry for reading, writing, or appending
+  VRESULT rc = VR_OK;
+  sysstate_t state;
+  uint8_t attr;
+  _mode = (openmode_t)_buffer[OFFSET_OPEN_MODE];  //The access mode is stored in the 1st byte of the command payload
 
   LOGD_P("%s() entry", __func__);
 
   if(_sysstate == SYS_REF) {
-    vfs_closedir(&direntry);
+    //vfs_closedir(&direntry);
 
-    if(DME && strcmp(refFileNameNoDir, "PARENT") == 0) { //If DME mode is enabled and the reference is for the "PARENT" directory
+    if(_dme_enabled && strcmp(name, "PARENT") == 0) { //If DME mode is enabled and the reference is for the "PARENT" directory
       LOGD_P("CHDIR ..");
-      remove_subdir();  //The top-most entry in the directory buffer is taken away
-      directoryDepth--; //and the directory depth index is decremented
+      remove_path();  //The top-most entry in the directory buffer is taken away
+      _dir_depth--; //and the directory depth index is decremented
     } else {
-      append_dir(refFileNameNoDir);  //Push the reference name onto the directory buffer
       led_sd_on();
-      if(DME && strstr(refFileName, ".<>") != 0 && !exists(directory)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
+      append_path(name);  //Push the reference name onto the directory buffer
+      if(_dme_enabled && is_dir && !exists(_path)){ //If the reference is for a directory and the directory buffer points to a directory that does not exist
         LOGD_P("MKDIR");
-        vfs_mkdir(directory);  //create the directory
-        remove_subdir();
-      } else {
-        rc = vfs_open(&entry, directory, VMODE_READ);
-        vfs_close(&entry);
+        rc = vfs_mkdir(_path);  //create the directory
+        // TODO should check rc
+        remove_path();
+      } else { // something exists.
+        rc = vfs_open(f, _path, VMODE_READ);
+        vfs_close(f);
         if(rc == VR_IS_DIRECTORY) { // open the directory to reference the entry
           LOGD_P("CHDIR");
-          append_dir("/"); //append a slash to the directory buffer
-          directoryDepth++; //and increment the directory depth index
+          append_path("/"); //append a slash to the directory buffer
+          _dir_depth++; //and increment the directory depth index
+          rc = VR_OK;
         } else {  //If the reference isn't a sub-directory, it's a file
           LOGD_P("OPEN");
           switch(_mode){
             case OPEN_WRITE:
-              // bug: FILE_WRITE includes O_APPEND, so existing files would be opened
-              //      at end.
-              //entry = _vfs.open(directory, FILE_WRITE);
-
               // open for write, position at beginning of file, create if needed
-              vfs_open(&entry, directory, VMODE_CREATE | VMODE_WRITE);
-              _sysstate = SYS_WRITE;
+              attr =  VMODE_CREATE | VMODE_WRITE;
+              state = SYS_WRITE;
               break;                // Write
             case OPEN_APPEND:
-              vfs_open(&entry, directory, VMODE_WRITE | VMODE_APPEND);
-              _sysstate = SYS_WRITE;
+              attr =  VMODE_WRITE | VMODE_APPEND;
+              state = SYS_WRITE;
               break;                // Append
             case OPEN_READ:
             default:
-              vfs_open(&entry, directory, VMODE_READ);
-              _sysstate = SYS_READ;
+              attr =  VMODE_READ;
+              state = SYS_READ;
               break;                // Read
 #ifdef ENABLE_TPDD_EXTENSIONS
             case OPEN_READ_WRITE:   // LaddieAlpha/VirtuaT extension
-              vfs_open(&entry, directory, VMODE_CREATE | VMODE_RDWR);
-              _sysstate = SYS_READ_WRITE;
+              attr =  VMODE_CREATE | VMODE_RDWR;
+              state = SYS_READ_WRITE;
               break;
 #endif
           }
-          remove_subdir();
+          rc = vfs_open(f, _path, attr);
+          if(rc == VR_OK)
+            _sysstate = state;
+          remove_path();
         }
       }
     }
-
-    if(exists(directory)) { //If the file actually exists...
-      led_sd_off();
-      send_ret_normal(ERR_SUCCESS);  //...send a normal return with no error.
-    } else {  //If the file doesn't exist...
-      led_sd_off();
-      send_ret_normal(ERR_NO_FILE);  //...send a normal return with a "file does not exist" error.
-    }
+    led_sd_off();
+    send_ret_normal(rc == VR_OK ? ERR_SUCCESS : ERR_NO_FILE);
   } else {  // wrong system state
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_NO_FILE);  //...send a normal return with a "file does not exist" error.
@@ -490,10 +506,10 @@ static void req_open(void) {  //Opens an entry for reading, writing, or appendin
  * System State:  Technically, should only run from SYS_READ, SYS_WRITE, of
  *                or SYS_READ_WRITE, but we'll go ahead and be lenient.
  */
-static void req_close() {  // Closes the currently open entry
+static void req_close(VFILE *f) {  // Closes the currently open entry
 
   LOGD_P("%s() entry", __func__);
-  vfs_close(&entry);  //Close the entry
+  vfs_close(f);  //Close the entry
   led_sd_off();
   _sysstate = SYS_IDLE;
   send_ret_normal(ERR_SUCCESS);  //Normal return with no error
@@ -504,20 +520,20 @@ static void req_close() {  // Closes the currently open entry
  * System State:  This can only run from SYS_READ or SYS_READ_WRITE,
  *                and goes to SYS_IDLE if error
  */
-static void req_read(){  //Read a block of data from the currently open entry
+static void req_read(VFILE *f){  //Read a block of data from the currently open entry
   VRESULT rc;
   uint32_t read;
 
   LOGD_P("%s() entry", __func__);
   if((_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
     led_sd_on();
-    rc = vfs_read(&entry, fileBuffer, FILE_BUFFER_SZ, &read);  //Try to pull 128 bytes from the file into the buffer
+    rc = vfs_read(f, _buffer, FILE_BUFFER_SZ, &read);  //Try to pull 128 bytes from the file into the buffer
     led_sd_off();
-    LOGV_P("A: %4X", entry.size - entry.pos);
+    LOGV_P("A: %4X", f->size - f->pos);
     if((rc == VR_OK) && read){  //Send the read return if there is data to be read
       send_byte(RET_READ);  //Return type
       send_byte(read); //Data length
-      send_buffer(fileBuffer, read);
+      send_buffer(_buffer, read);
       send_chksum();
     } else { //send a normal return with an end-of-file error if there is no data left to read
       send_ret_normal(ERR_EOF);
@@ -536,14 +552,14 @@ static void req_read(){  //Read a block of data from the currently open entry
  * System State:  This can only run from SYS_WRITE or SYS_READ_WRITE,
  *                and goes to SYS_IDLE if error
  */
-static void req_write(){ //Write a block of data from the command to the currently open entry
+static void req_write(VFILE *f){ //Write a block of data from the command to the currently open entry
   VRESULT rc;
   uint32_t written;
 
   LOGD_P("%s() entry", __func__);
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ_WRITE)) {
     led_sd_on();
-    rc = vfs_write(&entry, _buffer, _length, &written);
+    rc = vfs_write(f, _buffer, _length, &written);
     led_sd_off();
     if((rc == VR_OK) && (written == _length)) {
       send_ret_normal(ERR_SUCCESS);   // Send a normal return to the TPDD port with no error
@@ -566,20 +582,20 @@ static void req_write(){ //Write a block of data from the command to the current
 /*
  * System State: This can only run from SYS_REF, and goes to SYS_IDLE afterwards
  */
-static void req_delete() {  //Delete the currently open entry
+static void req_delete(VFILE *f, char *name) {  //Delete the currently open entry
   VRESULT rc;
 
   LOGD_P("%s() entry", __func__);
 
   if(_sysstate == SYS_REF) {
     led_sd_on();
-    vfs_close(&entry);  //Close any open entries
-    append_dir(refFileNameNoDir);  //Push the reference name onto the directory buffer
-    rc = vfs_delete(directory);
+    vfs_close(f);  //Close any open entries
+    append_path(name);  //Push the reference name onto the directory buffer
+    rc = vfs_delete(_path);
     // handle error, if any
     // TODO do we need to worry if the name was a dir and DME mode is off?
     led_sd_off();
-    remove_subdir();
+    remove_path();
     _sysstate = SYS_IDLE;
     send_ret_normal(ERR_SUCCESS);  //Send a normal return with no error
   } else {
@@ -594,14 +610,14 @@ static void ret_not_impl(void) {
   send_ret_normal(ERR_SUCCESS);
 }
 
-static void req_format(){  //Not implemented
+static void req_format(void){  //Not implemented
 
   LOGD_P("%s() entry", __func__);
   ret_not_impl();
   LOGD_P("%s() exit", __func__);
 }
 
-static void req_status(){  //Drive status
+static void req_status(void){  //Drive status
 
   LOGD_P("%s() entry", __func__);
   send_ret_normal(ERR_SUCCESS);
@@ -611,11 +627,11 @@ static void req_status(){  //Drive status
 /*
  * System State: This can run from any state, and does not alter state
  */
-static void req_condition(){
+static void req_condition(void){
 
   LOGD_P("%s() entry", __func__);
   send_byte(RET_CONDITION);  //Return type (normal)
-  send_byte(0x01);  //Data size (1)
+  send_byte(1);  //Data size (1)
   send_byte(ERR_SUCCESS); //Error code
   send_chksum(); //Checksum
   LOGD_P("%s() exit", __func__);
@@ -624,44 +640,35 @@ static void req_condition(){
 /*
  * System State: This can only run from SYS_REF, and goes to SYS_IDLE afterwards
  */
-static void req_rename(){  //Renames the currently open entry
+static void req_rename(char *name) {  //Renames the currently open entry
 
   LOGD_P("%s() entry", __func__);
 
   if(_sysstate == SYS_REF) { // we have a file reference to use.
 
-    append_dir(refFileNameNoDir);  //Push the current reference name onto the directory buffer
+    fmt_name((char *)_buffer, _tmpname, _dme_enabled);
+
+    append_path(name);  //Push the current reference name onto the directory buffer
 
     led_sd_on();
 
-    copy_dir();  //Copy the directory buffer to the scratchpad directory buffer
-    remove_subdir();  //Strip the previous directory reference off of the directory buffer
+#ifdef USE_STRING_FUNCS
+    strcpy((char *)_buffer, _path);
+#else
+    for(byte i = 0; i < DIRECTORY_SZ; i++)
+      _buffer = _path[i];
+#endif
+    remove_path();  //Strip the previous directory reference off of the directory buffer
 
-    uint8_t i;
-    for(i = 0; i < FILENAME_SZ;i++) {
-      if(_buffer[i] == 0 || _buffer[i] == ' ')
-        break;
-      tempRefFileName[i] = _buffer[i];
-    }
-    tempRefFileName[i] = '\0'; //Terminate the temporary reference name with a null character
+    append_path(_tmpname);
+    if(dirinfo.attr & VATTR_FOLDER)
+      append_path("/");
 
-    if(DME && dirinfo.attr & VATTR_FOLDER){ //      !!!If the entry is a directory, we need to strip the ".<>" off of the new directory name
-      if(strstr(tempRefFileName, ".<>") != 0){
-        for(byte i=0x00; i<FILENAME_SZ; i++){
-          if(tempRefFileName[i] == '.' || tempRefFileName[i] == '<' || tempRefFileName[i] == '>'){
-            tempRefFileName[i]='\0';
-          }
-        }
-      }
-    }
+    LOGD(_path);
+    LOGD((char *)_buffer);
+    vfs_rename((char *)_buffer,_path);  //Rename the entry
 
-    append_dir(tempRefFileName);
-
-    LOGD(directory);
-    LOGD(tempDirectory);
-    vfs_rename(tempDirectory,directory);  //Rename the entry
-
-    remove_subdir();
+    remove_path();
 
     led_sd_off();
 
@@ -678,8 +685,10 @@ static void req_rename(){  //Renames the currently open entry
  * Extended Commands
  */
 #ifdef ENABLE_TPDD_EXTENSIONS
-static void req_seek(void) {
-  int32_t pos;
+static void req_seek(VFILE *f) {
+  VRESULT rc;
+  uint32_t pos = 0;
+  int32_t offset;
 
   LOGD_P("%s() entry", __func__);
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
@@ -688,22 +697,23 @@ static void req_seek(void) {
         && (_buffer[OFFSET_SEEK_TYPE] < SEEKTYPE_MAX)
        ) {
       // handle seek
-      pos = (_buffer[1]
-            | (_buffer[2] << 8)
-            | ((uint32_t)_buffer[3] << 16)
-            | ((uint32_t)_buffer[4] << 24)
-           );
+      offset = (_buffer[1]
+                | (_buffer[2] << 8)
+                | ((uint32_t)_buffer[3] << 16)
+                | ((uint32_t)_buffer[4] << 24)
+               );
       switch(_buffer[OFFSET_SEEK_TYPE]) {
       case SEEKTYPE_SET:
-        vfs_seek(&entry, pos);
+        pos = offset;
         break;
       case SEEKTYPE_CUR:
-        vfs_seek(&entry, entry.pos + pos);
+        pos = f->pos + offset;
         break;
       case SEEKTYPE_END:
-        vfs_seek(&entry, entry.size + pos);
+        pos = f->size + pos;
         break;
       }
+      rc = vfs_seek(f, pos);
       send_ret_normal(ERR_SUCCESS);   // Send a normal return to the TPDD port with no error
     } else {
       // return error
@@ -717,13 +727,13 @@ static void req_seek(void) {
 }
 
 
-static void req_tell(void) {
+static void req_tell(VFILE *f) {
   uint32_t pos;
 
   LOGD_P("%s() entry", __func__);
   // Only tell if you have a file open
   if((_sysstate == SYS_WRITE) || (_sysstate == SYS_READ) || (_sysstate == SYS_READ_WRITE)) {
-    pos = entry.pos;
+    pos = f->pos;
     send_byte((uint8_t)pos);
     send_byte((uint8_t)(pos >> 8));
     send_byte((uint8_t)(pos >> 16));
@@ -736,31 +746,40 @@ static void req_tell(void) {
 }
 #endif
 
+// scan dir forwards to get local dir
+// scanning backwards also works, but most times, dir path will be short.
+
 /*
  *
  * TS-DOS DME Commands
  *
  */
 
+
 /*
  * System State: This can run from any state, and does not alter state
+ *
+ * It appears the .<> at the end need not be send, not the last ' ' char.
  */
-static void req_dme_label() {  //Send the dmeLabel
+static void req_dme_label(void) {  //Send the dmeLabel
+  uint8_t i;
+  char label[DME_LENGTH] = "v" TOSTRING(APP_VERSION) "." TOSTRING(APP_RELEASE) "." TOSTRING(APP_REVISION);
 
   LOGD_P("%s() entry", __func__);
-  LOGD_P("dmeLabel[%s]", dmeLabel);
 
   /* as per
    * http://bitchin100.com/wiki/index.php?title=Desklink/TS-DOS_Directory_Access#TPDD_Service_discovery
    * The mere inclusion of this command implies Directory Mode Extensions, so enable
    */
-  DME = true;
-  // prepend "/" to the root dir label just because my janky-ass set_label() assumes it
-  if (directoryDepth > 0) set_label(directory); else set_label("/SD:   ");
+  _dme_enabled = true;
+  if (_dir_depth > 0) {
+    get_local_path(label);
+  }
   send_byte(RET_NORMAL);
-  send_byte(0x0B);
-  send_byte(0x20);
-  for (byte i=0x00 ; i<0x06 ; i++) send_byte(dmeLabel[i]);
+  send_byte(11);
+  send_byte(0x20);  // not sure if this is a ' ' or magic value
+  for (i = 0; i < 6 ; i++)
+    send_byte(label[i] ? label[i] : ' ');
   send_dir_suffix();
   send_byte(' ');
   send_chksum();
@@ -798,6 +817,8 @@ static void req_unknown_2(void) {
 }
 #endif
 
+
+
 void tpdd_scan(void) {
   cmdstate_t state = IDLE;
   uint8_t i = 0;
@@ -805,6 +826,7 @@ void tpdd_scan(void) {
   uint8_t cmd = 0; // make the compiler happy
   uint8_t chk = 0;
   unsigned long idleSince = 0;
+  uint8_t is_dir = false;
 
   LOGD_P("%s() entry", __func__);
   dtr_ready();
@@ -878,22 +900,22 @@ void tpdd_scan(void) {
           break;
         case FOUND_DATA: // got checksum.  Check and exec
           if ((chk ^ 0xff) == data) {
-            LOGV_P("T:%2.2X|L:%2.2X|%c", cmd, _length, (DME ? 'D' : '.'));
+            LOGV_P("T:%2.2X|L:%2.2X|%c", cmd, _length, (_dme_enabled ? 'D' : '.'));
             switch(cmd){  // Select the command handler routine to jump to based on the command type
-              case CMD_REFERENCE:   req_reference(); break;
-              case CMD_OPEN:        req_open(); break;
-              case CMD_CLOSE:       req_close(); break;
-              case CMD_READ:        req_read(); break;
-              case CMD_WRITE:       req_write(); break;
-              case CMD_DELETE:      req_delete(); break;
+              case CMD_REFERENCE:   req_reference(&_dir, _filename, &is_dir); break;
+              case CMD_OPEN:        req_open(&_file, _filename, is_dir); break;
+              case CMD_CLOSE:       req_close(&_file); break;
+              case CMD_READ:        req_read(&_file); break;
+              case CMD_WRITE:       req_write(&_file); break;
+              case CMD_DELETE:      req_delete(&_file, _filename); break;
               case CMD_FORMAT:      req_format(); break;
               case CMD_STATUS:      req_status(); break;
               case CMD_DMEREQ:      req_dme_label(); break; // DME Command
               case CMD_CONDITION:   req_condition(); break;
-              case CMD_RENAME:      req_rename(); break;
+              case CMD_RENAME:      req_rename(_filename); break;
 #ifdef ENABLE_TPDD_EXTENSIONS
-              case CMD_SEEK_EXT:    req_seek(); break;
-              case CMD_TELL_EXT:    req_tell(); break;
+              case CMD_SEEK_EXT:    req_seek(&_file); break;
+              case CMD_TELL_EXT:    req_tell(&_file); break;
               case CMD_TSDOS_UNK_1: req_unknown_1(); break;
               case CMD_TSDOS_UNK_2: req_unknown_2(); break;
 #endif

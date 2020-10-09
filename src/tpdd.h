@@ -25,10 +25,10 @@
 #ifndef TPDD_H
 #define TPDD_H
 
-#define DIRECTORY_SZ 0x40       // size of directory[] which holds full paths
-#define FILENAME_SZ 0x18        // TPDD protocol spec 1C, minus 4 for ".<>"+NULL
-#define DATA_BUFFER_SZ 0x0100   // 256 bytes, 2 full tpdd packets? 0xFF did not work.
-#define FILE_BUFFER_SZ 0x80     // 128 bytes at at time to/from files
+#define DIRECTORY_SZ    0x40      // size of directory[] which holds full paths
+#define FILENAME_SZ     0x18      // TPDD protocol spec 1C, minus 4 for ".<>"+NULL
+#define DATA_BUFFER_SZ  0x100     // 256 bytes, 2 full tpdd packets? 0xFF did not work.
+#define FILE_BUFFER_SZ  0x80      // 128 bytes at at time to/from files
 
 #define ENABLE_TPDD_EXTENSIONS  // If you want to enable the extensions
 
@@ -123,7 +123,12 @@ typedef enum seektype_e {
 
 #define SEEKTYPE_MAX  (SEEKTYPE_END + 1)
 
-#define OFFSET_SEEK_TYPE      0x00 // TODO check this
+#define OFFSET_SEEK_TYPE      0     // TODO check this
+#define DME_LENGTH            7     // 6 chars + NULL
+//#define MAX_FREE_SECTORS    0x80
+#define MAX_FREE_SECTORS      0x9d
+#define OFFSET_SEARCH_FORM    0x19
+#define OFFSET_OPEN_MODE      0
 
 typedef enum sysstate_e {
   SYS_IDLE,
